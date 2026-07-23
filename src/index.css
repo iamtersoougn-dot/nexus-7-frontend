@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+body {
+  background-color: #09090b; /* Zinc 950 - Tech dark mode */
+  color: #fafafa;
+}
+
+@keyframes data-flow {
+  0% { left: 0%; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: 95%; opacity: 0; }
+}
