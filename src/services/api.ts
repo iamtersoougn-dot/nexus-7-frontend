@@ -8,8 +8,8 @@ export const dispatchTask = async (directive: string, agentRole: string) => {
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second strict timeout
 
   try {
-    // Dynamic routing: Vercel environment variable in production, localhost in development
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    // HARDCODED CLOUD RUN URL TO GUARANTEE CONNECTION
+    const API_BASE_URL = 'https://nexus-7-backend-55811069406.europe-west1.run.app';
     
     const response = await fetch(`${API_BASE_URL}/api/orchestrator/dispatch`, {
       method: 'POST',
