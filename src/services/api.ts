@@ -8,8 +8,8 @@ export const dispatchTask = async (directive: string, agentRole: string) => {
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second strict timeout
 
   try {
-    // HARDCODED CLOUD RUN URL TO GUARANTEE CONNECTION
-    const API_BASE_URL = 'https://nexus-7-backend-55811069406.europe-west1.run.app';
+    // Dynamic routing: reads Vercel environment variable in production, localhost in development
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
     
     const response = await fetch(`${API_BASE_URL}/api/orchestrator/dispatch`, {
       method: 'POST',
@@ -32,7 +32,6 @@ export const dispatchTask = async (directive: string, agentRole: string) => {
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       console.error('[API BOUNDARY ERROR] Request timed out.');
-      // Added { cause: error } to satisfy the strict ESLint preserve-caught-error rule
       throw new Error(
         '[GUARD FIREWALL] Gateway Timeout: The orchestration pipeline took too long to respond or the network connection dropped.',
         { cause: error }
