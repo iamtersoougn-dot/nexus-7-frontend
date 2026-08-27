@@ -1,44 +1,40 @@
-/**
- * Core API Dispatch Utility
- * Handles strict bidirectional communication with the Node.js Orchestration Gateway.
- */
-export const dispatchTask = async (directive: string, agentRole: string) => {
-  // Initialize a circuit breaker to prevent infinite UI hanging
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second strict timeout
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://nexus-7-backend-55811069406.europe-west1.run.app';
+
+export interface DispatchResponse {
+  success: boolean;
+  data: string;
+  latencyMs: number;
+  status: string;
+}
+
+export const dispatchDirective = async (directive: string, agentRole: string): Promise<DispatchResponse> => {
+  // Strip trailing slashes to prevent double slashes in the route path
+  const sanitizedBaseUrl = BASE_URL.replace(/\/+$/, '');
+  const targetUrl = `${sanitizedBaseUrl}/api/orchestrator/dispatch`;
 
   try {
-    // Dynamic routing: reads Vercel environment variable in production, localhost in development
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    
-    const response = await fetch(`${API_BASE_URL}/api/orchestrator/dispatch`, {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ directive, agentRole }),
-      signal: controller.signal // Bind the abort signal to the fetch request
+      body: JSON.stringify({
+        directive,
+        agentRole,
+        tenantId: 'tenant_admin_muni_01'
+      }),
     });
 
-    clearTimeout(timeoutId); // Clear the timeout if the server responds
-
-    const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.error || `Gateway execution failed with status: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`[GATEWAY ERROR ${response.status}] ${errorText}`);
     }
 
+    const data: DispatchResponse = await response.json();
     return data;
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.error('[API BOUNDARY ERROR] Request timed out.');
-      throw new Error(
-        '[GUARD FIREWALL] Gateway Timeout: The orchestration pipeline took too long to respond or the network connection dropped.',
-        { cause: error }
-      );
-    }
-
-    console.error('[API BOUNDARY ERROR] Failed to dispatch task:', error);
-    throw error;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown execution error occurred';
+    console.error('[API DISPATCH FAILED]', message);
+    throw new Error(message, { cause: err });
   }
 };
