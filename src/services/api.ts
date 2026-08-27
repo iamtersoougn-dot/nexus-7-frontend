@@ -1,4 +1,11 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'https://nexus-7-backend-55811069406.europe-west1.run.app';
+// Production Cloud Run Gateway URL
+const BACKEND_URL = 'https://nexus-7-backend-55811069406.europe-west1.run.app';
+
+// Strips any potential brackets, quotes, or trailing slashes
+const CLEAN_BASE_URL = (import.meta.env.VITE_API_URL || BACKEND_URL)
+  .toString()
+  .replace(/[[\]"'\s]/g, '')
+  .replace(/\/+$/, '');
 
 export interface DispatchResponse {
   success: boolean;
@@ -7,10 +14,11 @@ export interface DispatchResponse {
   status: string;
 }
 
-export const dispatchDirective = async (directive: string, agentRole: string): Promise<DispatchResponse> => {
-  // Strip trailing slashes to prevent double slashes in the route path
-  const sanitizedBaseUrl = BASE_URL.replace(/\/+$/, '');
-  const targetUrl = `${sanitizedBaseUrl}/api/orchestrator/dispatch`;
+export const dispatchDirective = async (
+  directive: string,
+  agentRole: string
+): Promise<DispatchResponse> => {
+  const targetUrl = `${CLEAN_BASE_URL}/api/orchestrator/dispatch`;
 
   try {
     const response = await fetch(targetUrl, {
@@ -21,7 +29,7 @@ export const dispatchDirective = async (directive: string, agentRole: string): P
       body: JSON.stringify({
         directive,
         agentRole,
-        tenantId: 'tenant_admin_muni_01'
+        tenantId: 'tenant_admin_muni_01',
       }),
     });
 
