@@ -1,11 +1,5 @@
-// Verified Cloud Run Gateway Endpoint
-const BACKEND_URL = 'https://nexus-7-backend-ssuzn77t2q-ew.a.run.app';
-
-// Sanitize URL to ensure no accidental brackets, whitespace, or trailing slashes
-const CLEAN_BASE_URL = (import.meta.env.VITE_API_URL || BACKEND_URL)
-  .toString()
-  .replace(/[[\]"'\s]/g, '')
-  .replace(/\/+$/, '');
+// Production Cloud Run Gateway Endpoint
+const CLEAN_BASE_URL = 'https://nexus-7-backend-ssuzn77t2q-ew.a.run.app';
 
 export interface DispatchResponse {
   success: boolean;
@@ -67,7 +61,6 @@ export const dispatchTask = async (
   }
 };
 
-// Backwards compatibility alias
 export const dispatchDirective = dispatchTask;
 
 /**
