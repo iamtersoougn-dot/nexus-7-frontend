@@ -1,7 +1,7 @@
-// Production Cloud Run Gateway URL
-const BACKEND_URL = 'https://nexus-7-backend-55811069406.europe-west1.run.app';
+// Verified Cloud Run Gateway Endpoint
+const BACKEND_URL = 'https://nexus-7-backend-ssuzn77t2q-ew.a.run.app';
 
-// Sanitize base URL by stripping brackets, quotes, whitespace, and trailing slashes
+// Sanitize URL to ensure no accidental brackets, whitespace, or trailing slashes
 const CLEAN_BASE_URL = (import.meta.env.VITE_API_URL || BACKEND_URL)
   .toString()
   .replace(/[[\]"'\s]/g, '')
@@ -32,7 +32,7 @@ export interface TelemetryResponse {
 }
 
 /**
- * Primary dispatch function imported by App.tsx
+ * Dispatches an architectural or audit directive to the Gemini agent core
  */
 export const dispatchTask = async (
   directive: string,
@@ -67,11 +67,11 @@ export const dispatchTask = async (
   }
 };
 
-// Export alias for backwards compatibility
+// Backwards compatibility alias
 export const dispatchDirective = dispatchTask;
 
 /**
- * Fetches telemetry records from Cloud SQL PostgreSQL
+ * Fetches persisted telemetry and latency logs from Cloud SQL PostgreSQL
  */
 export const fetchTelemetryLogs = async (limit: number = 50): Promise<TelemetryResponse> => {
   const targetUrl = `${CLEAN_BASE_URL}/api/orchestrator/telemetry?tenantId=tenant_admin_muni_01&limit=${limit}`;
