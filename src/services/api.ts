@@ -1,7 +1,7 @@
 // Production Cloud Run Gateway URL
 const BACKEND_URL = 'https://nexus-7-backend-55811069406.europe-west1.run.app';
 
-// Strips any potential brackets, quotes, or trailing slashes
+// Strips brackets, quotes, whitespace, or trailing slashes
 const CLEAN_BASE_URL = (import.meta.env.VITE_API_URL || BACKEND_URL)
   .toString()
   .replace(/[[\]"'\s]/g, '')
@@ -14,6 +14,26 @@ export interface DispatchResponse {
   status: string;
 }
 
+export interface TelemetryLog {
+  id: string;
+  tenant_id: string;
+  agent_role: string;
+  action: string;
+  directive: string;
+  status: string;
+  latency_ms: number;
+  created_at: string;
+}
+
+export interface TelemetryResponse {
+  success: boolean;
+  count: number;
+  logs: TelemetryLog[];
+}
+
+/**
+ * Dispatches an architectural or audit directive to the Gemini-powered agent core
+ */
 export const dispatchDirective = async (
   directive: string,
   agentRole: string
@@ -43,6 +63,34 @@ export const dispatchDirective = async (
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown execution error occurred';
     console.error('[API DISPATCH FAILED]', message);
+    throw new Error(message, { cause: err });
+  }
+};
+
+/**
+ * Fetches persisted telemetry and latency logs from Cloud SQL PostgreSQL
+ */
+export const fetchTelemetryLogs = async (limit: number = 50): Promise<TelemetryResponse> => {
+  const targetUrl = `${CLEAN_BASE_URL}/api/orchestrator/telemetry?tenantId=tenant_admin_muni_01&limit=${limit}`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`[TELEMETRY FETCH ERROR ${response.status}] ${errorText}`);
+    }
+
+    const data: TelemetryResponse = await response.json();
+    return data;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to retrieve telemetry buffer';
+    console.error('[TELEMETRY BUFFER FAILED]', message);
     throw new Error(message, { cause: err });
   }
 };
