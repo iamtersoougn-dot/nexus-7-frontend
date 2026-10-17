@@ -1,23 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, Terminal, Cpu, Send, Loader2, Calculator, Scale, Code2, Network, Activity, Database, Server, Map, FileCode2, Code, Download, Layers, MessageSquare, TerminalSquare, Bot, User, Play, ChevronRight, GitBranch, RefreshCw, Monitor, Zap, Navigation, Building2, Key } from 'lucide-react';
-import { dispatchTask } from './services/api';
+import { Shield, Terminal, Cpu, Send, Loader2, Calculator, Scale, Code2, Network, Activity, Database, Server, Map, FileCode2, Code, Download, Layers, MessageSquare, TerminalSquare, Bot, User, Play, ChevronRight, Folder, RefreshCw, Monitor, Zap, Navigation, Building2, Key, Boxes, SearchCode, ListChecks, Bug, DatabaseZap, Palette, ShieldAlert, Rocket, BookOpen, Eraser, LogOut } from 'lucide-react';
+import { AUTH_EVENT, dispatchTask, fetchAuthStatus, fetchHealth, fetchProjects, fetchStats, fetchTelemetryLogs, logout, type AgentStat, type ChatTurn, type HealthResponse, type ProjectSummary, type TelemetryLog } from './services/api';
+import LoginGate from './components/LoginGate';
+import FactoryPanel from './components/FactoryPanel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-interface FirestoreTimestamp {
-  _seconds: number;
-  _nanoseconds: number;
-}
-
-interface TelemetryLog {
-  id: string;
-  tenantId?: string;
-  agentRole?: string;
-  action?: string;
-  directive?: string;
-  status?: string;
-  timestamp?: string | FirestoreTimestamp;
-}
 
 interface InterceptedAttack {
   id: string;
@@ -34,15 +21,26 @@ interface ChatMessage {
   timestamp: string;
 }
 
-const agentRegistry = [
+/** Day-to-day developer agents (default roster). Each can be pointed at a generated project for context. */
+const devAgents = [
+  { id: 'reviewer', name: 'Code Reviewer', role: 'Senior TS/React Reviewer', desc: 'Reviews code or a whole generated project for bugs, security and maintainability, with fixes.', context: 'Point me at a project (or paste code) and I will review it by severity with corrected snippets.', icon: <SearchCode className="h-5 w-5 text-indigo-400" />, starter: 'Review this project. List the top issues by severity with file paths and corrected code.' },
+  { id: 'planner', name: 'Project Planner', role: 'Technical Planner', desc: 'Turns goals into milestones, task tables with estimates, dependencies and risks.', context: 'Tell me the goal and constraints; I will produce the smallest plan that ships value first.', icon: <ListChecks className="h-5 w-5 text-emerald-400" />, starter: 'Plan the next two weeks of work for this project as a task table with estimates and risks.' },
+  { id: 'debugger', name: 'Debugger', role: 'Node / Vite / Capacitor Debugger', desc: 'Diagnoses errors and stack traces, ranks likely causes and gives exact fixes.', context: 'Paste the error, what you ran and what you expected.', icon: <Bug className="h-5 w-5 text-rose-400" />, starter: 'I get this error when I run npm run dev: <paste error here>' },
+  { id: 'dbdesigner', name: 'Database Designer', role: 'PostgreSQL Schema Designer', desc: 'Designs tables, indexes, constraints, RLS policies and idempotent migrations.', context: 'Describe the data or point me at a project with db/schema.sql.', icon: <DatabaseZap className="h-5 w-5 text-cyan-400" />, starter: 'Review db/schema.sql for this project and propose improvements as a migration.' },
+  { id: 'uxcritic', name: 'UI/UX Critic', role: 'Product Designer', desc: 'Critiques hierarchy, accessibility, empty states and mobile ergonomics with Tailwind fixes.', context: 'Point me at a project and I will review its screens.', icon: <Palette className="h-5 w-5 text-pink-400" />, starter: 'Critique the UI of this project for mobile use and list concrete Tailwind changes.' },
+  { id: 'security', name: 'Security Auditor', role: 'AppSec Auditor', desc: 'Checks injection, auth, secrets, unsafe file handling and dependency risk.', context: 'Point me at a project or paste code to audit.', icon: <ShieldAlert className="h-5 w-5 text-amber-400" />, starter: 'Audit this project for security issues and rate each finding.' },
+  { id: 'deploy', name: 'Deployment Guide', role: 'DevOps Guide', desc: 'Step-by-step shipping to Vercel/Netlify/Cloud Run, Neon/Supabase and the Play Store.', context: 'Tell me where you want to ship and your budget.', icon: <Rocket className="h-5 w-5 text-violet-400" />, starter: 'How do I deploy this project for free, including the database? Windows commands please.' },
+  { id: 'docs', name: 'Docs Writer', role: 'Technical Writer', desc: 'Writes READMEs, API docs, onboarding guides and changelogs.', context: 'Point me at a project or paste notes.', icon: <BookOpen className="h-5 w-5 text-sky-400" />, starter: 'Write a complete README for this project.' },
+];
+
+/** The original municipal personas, available under "Legacy agents". */
+const legacyAgents = [
   {
     id: 'gateway',
     name: 'Gateway Router & Dispatcher',
     role: 'Orchestration Router',
     desc: 'Coordinates ingress tasks, analyzes request intent, and routes to specialized administrative nodes.',
     context: 'You are the Gateway Router & Dispatcher. Your primary function is to parse ingress intent, route administrative payloads to the correct sub-nodes, and maintain orchestrator stability across the municipal tenant context.',
-    runs: 204,
-    success: 99.1,
     icon: <Network className="h-5 w-5 text-indigo-400" />
   },
   {
@@ -51,8 +49,6 @@ const agentRegistry = [
     role: 'Lead Finance Agent',
     desc: 'Specializes in municipal budget audits, identifying ledger anomalies, and analyzing public expenditure.',
     context: 'You are the Municipal Financial Auditor. Scan public ledgers, identify anomalous expenditure, evaluate budget limits, and flag unauthorized fund allocation in accordance with financial regulations.',
-    runs: 142,
-    success: 98.4,
     icon: <Calculator className="h-5 w-5 text-emerald-400" />
   },
   {
@@ -61,8 +57,6 @@ const agentRegistry = [
     role: 'Legal Compliance Guard',
     desc: 'Audits public procurement tenders, state contracts, and organizational statutory procedures.',
     context: 'You are the Regulatory Compliance Officer. Review legal frameworks, procurement contracts, and municipal vendor agreements. Ensure strict compliance with administrative statutory policies.',
-    runs: 88,
-    success: 100.0,
     icon: <Scale className="h-5 w-5 text-amber-400" />
   },
   {
@@ -71,8 +65,6 @@ const agentRegistry = [
     role: 'Syntax & RLS Compliance Validator',
     desc: 'Verifies syntactic correctness, RLS policy integrity, and structural JSON/TS schema compliance.',
     context: 'You are the Technical Core Syntax & RLS Validator. Analyze source code blocks and Database Row-Level Security definitions for insecure boundaries or architectural anti-patterns.',
-    runs: 156,
-    success: 98.8,
     icon: <Code2 className="h-5 w-5 text-blue-400" />
   },
   {
@@ -81,8 +73,6 @@ const agentRegistry = [
     role: 'Threat & Log Telemetry Watchdog',
     desc: 'Audits system log streams and rate-limiting buffers to identify access violations, RLS boundary breaches, and anomalies.',
     context: 'You are the Telemetry Watchdog & Anomaly Detection Agent. Scan operational logs and telemetry records for DoS spikes, tenant crossing attempts, and anomalous traffic patterns.',
-    runs: 189,
-    success: 99.6,
     icon: <Activity className="h-5 w-5 text-rose-400" />
   },
   {
@@ -91,8 +81,6 @@ const agentRegistry = [
     role: 'Land Usage Expert',
     desc: 'Evaluates land use applications, parcel divisions, and environmental assessments against zoning codes.',
     context: 'You are the Zoning & Permitting Expert. Evaluate land applications and geographic coordinates against active municipal ordinances, zoning maps, and environmental impact rules.',
-    runs: 94,
-    success: 98.2,
     icon: <Map className="h-5 w-5 text-orange-400" />
   },
   {
@@ -101,8 +89,6 @@ const agentRegistry = [
     role: 'AST Code Compiler',
     desc: 'Transforms raw LLM output fragments and pseudo-code directives into executable Abstract Syntax Trees.',
     context: 'You are the Node 05 AST Compiler. Ingest semantic directives and raw AI fragments to construct valid, executable code modules and abstract syntax trees.',
-    runs: 312,
-    success: 99.9,
     icon: <FileCode2 className="h-5 w-5 text-cyan-400" />
   },
   {
@@ -111,8 +97,6 @@ const agentRegistry = [
     role: 'Energy Telemetry Node',
     desc: 'Analyzes smart-plug hardware telemetry to predict grid outages and automate smart energy load switching for regional environments.',
     context: 'You are the Smart Grid & Load Optimizer. Interface with smart-plug telemetry, predict regional grid outages, and execute automated energy load switching protocols to maintain operational continuity.',
-    runs: 67,
-    success: 99.2,
     icon: <Zap className="h-5 w-5 text-yellow-400" />
   },
   {
@@ -121,8 +105,6 @@ const agentRegistry = [
     role: 'Logistics & Mapping AI',
     desc: 'Ingests real-time driver voice notes and spatial data to generate localized mapping and automated routing intelligence.',
     context: 'You are the Route Intelligence Dispatcher. Process real-time localized traffic data and ingest automated driver voice notes to generate dynamic mapping intelligence and municipal routing commands.',
-    runs: 412,
-    success: 97.8,
     icon: <Navigation className="h-5 w-5 text-blue-500" />
   },
   {
@@ -131,8 +113,6 @@ const agentRegistry = [
     role: 'Microservices Coordinator',
     desc: 'Monitors decoupled microservices and APIs for enterprise resource planning across educational and public sector institutions.',
     context: 'You are the Institutional ERP Administrator. Monitor the decoupled microservices architecture of institutional enterprise resource planning systems. Manage API connections and sync operational flows.',
-    runs: 289,
-    success: 98.9,
     icon: <Building2 className="h-5 w-5 text-purple-400" />
   },
   {
@@ -141,15 +121,22 @@ const agentRegistry = [
     role: 'Hospitality Integration Node',
     desc: 'Manages niche booking infrastructures, oversees phased deployment operations, and coordinates boutique property security protocols.',
     context: 'You are the Property Security Coordinator. Oversee automated booking logic and security infrastructure deployment for boutique physical properties. Ensure access logs are strictly audited.',
-    runs: 134,
-    success: 100.0,
     icon: <Key className="h-5 w-5 text-rose-500" />
   }
 ];
 
+type Agent = { id: string; name: string; role: string; desc: string; context: string; icon: React.ReactNode; starter?: string };
+const allAgents: Agent[] = [...devAgents, ...legacyAgents];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [contextProjectId, setContextProjectId] = useState<string>('');
+  const [authNeeded, setAuthNeeded] = useState(false);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [authNonce, setAuthNonce] = useState(0);
   
   // Sandbox Execution State
   const [directive, setDirective] = useState('');
@@ -170,7 +157,26 @@ export default function App() {
   // Command Palette State
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
-  const currentAgent = agentRegistry.find(a => a.id === selectedAgentId);
+  // Live system state from the local backend
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [agentStats, setAgentStats] = useState<Record<string, AgentStat>>({});
+  const [blockedLogs, setBlockedLogs] = useState<TelemetryLog[]>([]);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const ingestionFileRef = useRef<HTMLInputElement>(null);
+
+  const currentAgent = allAgents.find(a => a.id === selectedAgentId);
+  const roster = showLegacy ? legacyAgents : devAgents;
+
+  // Network mode: show the login gate when the backend asks for the access key.
+  useEffect(() => {
+    const onAuth = () => setAuthNeeded(true);
+    window.addEventListener(AUTH_EVENT, onAuth);
+    fetchAuthStatus()
+      .then((s) => { setAuthEnabled(s.required); if (s.required && !s.authenticated) setAuthNeeded(true); })
+      .catch(() => undefined);
+    return () => window.removeEventListener(AUTH_EVENT, onAuth);
+  }, []);
 
   // Keyboard Palette Logic (Ctrl+K)
   useEffect(() => {
@@ -185,6 +191,44 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Backend heartbeat (every 15s)
+  useEffect(() => {
+    let cancelled = false;
+    const ping = async () => {
+      try {
+        const h = await fetchHealth();
+        if (cancelled) return;
+        setBackendOnline(true);
+        if (!h.database) { setAuthNeeded(true); return; } // trimmed response = not logged in yet
+        setHealth(h);
+        setAuthEnabled(Boolean(h.authRequired));
+      } catch {
+        if (!cancelled) setBackendOnline(false);
+      }
+    };
+    void ping();
+    const id = setInterval(ping, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [authNonce]);
+
+  const refreshStats = async () => {
+    try {
+      const data = await fetchStats();
+      setAgentStats(Object.fromEntries(data.agents.map((a) => [a.agentRole, a])));
+    } catch {
+      /* offline */
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard') return;
+    const t = setTimeout(() => {
+      void refreshStats();
+      fetchProjects().then((d) => setProjects(d.projects.filter((p) => p.status !== 'failed'))).catch(() => undefined);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [activeTab, authNonce]);
+
   // Auto-scroll chat to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -193,12 +237,12 @@ export default function App() {
   // Clean Agent Selection Handler
   const handleAgentSelect = (agentId: string) => {
     setSelectedAgentId(agentId);
-    const agent = agentRegistry.find(a => a.id === agentId);
+    const agent = allAgents.find(a => a.id === agentId);
     if (agent) {
       setChatLog([{
         id: 'init-msg',
         role: 'agent',
-        text: `Greetings! I am your ${agent.role}. Chat with me directly to execute administrative tasks, review telemetry, or process operational routines.`,
+        text: `Greetings! I am your ${agent.role}. ${agent.context} I remember this conversation until you clear it.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
       setDirective('');
@@ -216,11 +260,16 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
+    // Conversation memory: earlier turns (minus the greeting and error messages) go back to the model.
+    const history: ChatTurn[] = chatLog
+      .filter((m) => m.id !== 'init-msg' && !m.text.startsWith('[SYSTEM ERROR]'))
+      .map((m) => ({ role: m.role === 'user' ? 'user' : 'model', text: m.text }));
+
     setChatLog(prev => [...prev, userMessage]);
     setIsProcessing(true);
     
     try {
-      const result = await dispatchTask(directive, currentAgent.name);
+      const result = await dispatchTask(directive, currentAgent.name, { history, projectId: contextProjectId || null });
       
       const agentMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -230,6 +279,7 @@ export default function App() {
       };
       
       setChatLog(prev => [...prev, agentMessage]);
+      void refreshStats();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -263,7 +313,7 @@ export default function App() {
     setIsCompiling(true);
     setCompilerOutput(`[NODE 05] Ingesting raw token stream...\n[NODE 05] Initiating AST Compilation Phase...`);
     try {
-      const result = await dispatchTask(ingestionCode, 'Dedicated Code & Schema Validator');
+      const result = await dispatchTask(ingestionCode, 'Code Reviewer');
       setCompilerOutput(`[COMPILATION SUCCESS] Output Generated:\n\n${result.data}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -275,39 +325,52 @@ export default function App() {
 
   const fetchLogs = async () => {
     setIsLoadingLogs(true);
+    setLogsError(null);
     try {
-      const response = await fetch('/api/orchestrator/logs');
-      if (response.ok) {
-        const data = await response.json();
-        setTelemetryLogs(data.logs || []);
-      }
+      const data = await fetchTelemetryLogs(100);
+      setTelemetryLogs(data.logs || []);
     } catch (error) {
-      console.error("Network error while fetching logs:", error);
+      setLogsError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsLoadingLogs(false);
     }
   };
 
-  useEffect(() => {
-    if (activeTab === 'telemetry') {
-      const deferredFetch = setTimeout(() => {
-        fetchLogs();
-      }, 0);
-      return () => clearTimeout(deferredFetch);
+  const fetchBlocked = async () => {
+    try {
+      const data = await fetchTelemetryLogs(100, 'BLOCKED');
+      setBlockedLogs(data.logs || []);
+    } catch {
+      /* offline */
     }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'telemetry' && activeTab !== 'guard') return;
+    const deferredFetch = setTimeout(() => {
+      if (activeTab === 'telemetry') fetchLogs();
+      else fetchBlocked();
+    }, 0);
+    return () => clearTimeout(deferredFetch);
   }, [activeTab]);
 
-  const formatTimestamp = (ts: string | FirestoreTimestamp | unknown) => {
-    if (!ts) return 'Unknown Time';
-    if (typeof ts === 'object' && ts !== null && '_seconds' in ts) {
-      const firestoreTime = ts as FirestoreTimestamp;
-      return new Date(firestoreTime._seconds * 1000).toLocaleString();
+  const formatTimestamp = (ts: string) => (ts ? new Date(ts).toLocaleString() : 'Unknown Time');
+
+  const loadIngestionFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 200_000) {
+      setCompilerOutput('[INGESTION REJECTED] File is larger than 200 KB.');
+      return;
     }
-    if (typeof ts === 'string') {
-      return new Date(ts).toLocaleString();
-    }
-    return 'Unknown Time';
+    file.text().then((text) => setIngestionCode(text)).catch(() => setCompilerOutput('[INGESTION REJECTED] Could not read file.'));
   };
+
+  const guardEvents = [
+    ...interceptedAttacks.map((a) => ({ id: a.id, ts: a.timestamp, target: a.agentTarget, payload: a.directive, reason: a.reason })),
+    ...blockedLogs.map((l) => ({ id: l.id, ts: l.created_at, target: l.agent_role, payload: l.directive, reason: l.action.replace(/^GUARD_/, '').replace(/_/g, ' ') })),
+  ].filter((e, i, all) => all.findIndex((x) => x.payload === e.payload && Math.abs(new Date(x.ts).getTime() - new Date(e.ts).getTime()) < 5000) === i);
+
+  const engineName = health?.engine || 'Engine offline';
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 text-zinc-50 font-sans selection:bg-zinc-800 text-[13px] overflow-hidden">
@@ -322,39 +385,53 @@ export default function App() {
             <h1 className="font-bold tracking-widest uppercase text-sm text-zinc-100">NEXUS-7 ARCHITECT</h1>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[10px] text-emerald-400 font-mono font-medium tracking-wider bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">v2.4.0-STABLE</span>
-              <span className="text-[9px] text-zinc-500 font-mono uppercase">Mission-Critical OS // Multi-Agent Portal</span>
+              <span className="text-[9px] text-zinc-500 font-mono uppercase hidden 2xl:inline">Mission-Critical OS // Multi-Agent Portal</span>
             </div>
           </div>
         </div>
 
-        <nav className="flex items-center gap-2 overflow-x-auto pb-2 xl:pb-0 hide-scrollbar flex-1 xl:justify-center">
-          <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'dashboard' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+        <nav className="flex items-center gap-1 overflow-x-auto pb-2 xl:pb-0 hide-scrollbar flex-1 min-w-0 justify-start xl:justify-center-safe">
+          <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'dashboard' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
             <Cpu className="h-4 w-4" /> Control Room
           </button>
-          <button onClick={() => setActiveTab('guard')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'guard' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+          <button onClick={() => setActiveTab('factory')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'factory' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+            <Boxes className="h-4 w-4" /> App Factory
+          </button>
+          <button onClick={() => setActiveTab('guard')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'guard' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
             <Shield className="h-4 w-4" /> Guard Center
           </button>
-          <button onClick={() => setActiveTab('telemetry')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'telemetry' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+          <button onClick={() => setActiveTab('telemetry')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'telemetry' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
             <Terminal className="h-4 w-4" /> Telemetry Logs
           </button>
-          <button onClick={() => setActiveTab('ingestion')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'ingestion' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+          <button onClick={() => setActiveTab('ingestion')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'ingestion' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
             <Code className="h-4 w-4" /> Code Ingestion
           </button>
-          <button onClick={() => setActiveTab('blueprint')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'blueprint' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
+          <button onClick={() => setActiveTab('blueprint')} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-mono uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer shrink-0 ${activeTab === 'blueprint' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-900 border border-transparent'}`}>
             <Layers className="h-4 w-4" /> Arch Blueprint
           </button>
         </nav>
 
-        <div className="hidden xl:flex items-center gap-6">
-          <div className="flex items-center gap-2 bg-emerald-500/5 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-            <span className="text-[10px] font-mono text-emerald-400 font-bold tracking-widest uppercase">99.98% Uptime</span>
+        <div className="hidden xl:flex items-center gap-6 shrink-0">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${backendOnline ? 'bg-emerald-500/5 border-emerald-500/20' : backendOnline === false ? 'bg-rose-500/5 border-rose-500/20' : 'bg-zinc-900 border-zinc-800'}`} title={health ? `${health.engine} · ${health.database.driver}` : 'Checking local backend…'}>
+            <span className={`h-2 w-2 rounded-full ${backendOnline ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]' : backendOnline === false ? 'bg-rose-500' : 'bg-zinc-500'}`}></span>
+            <span className={`text-[10px] font-mono font-bold tracking-widest uppercase ${backendOnline ? 'text-emerald-400' : backendOnline === false ? 'text-rose-400' : 'text-zinc-400'}`}>
+              {backendOnline ? (health?.llmConfigured ? 'Local Engine Online' : 'Online · No API Key') : backendOnline === false ? 'Backend Offline' : 'Connecting…'}
+            </span>
           </div>
-          <div className="h-8 w-px bg-zinc-800"></div>
-          <div className="flex items-center gap-3">
+          {authEnabled && (
+            <button
+              onClick={() => { void logout().finally(() => setAuthNeeded(true)); }}
+              className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-400 hover:text-zinc-200 cursor-pointer"
+              title="Sign out of this browser"
+            >
+              <LogOut className="h-3.5 w-3.5" /> Lock
+            </button>
+          )}
+          <div className="h-8 w-px bg-zinc-800 hidden 2xl:block"></div>
+          <div className="hidden 2xl:flex items-center gap-3">
             <div className="text-right">
               <p className="text-xs font-bold text-zinc-200 leading-tight">Admin_01</p>
-              <p className="text-[9px] font-mono text-indigo-400 uppercase tracking-widest">Lead Solutions Eng</p>
+              <p className="text-[9px] font-mono text-indigo-400 uppercase tracking-widest">{health?.networkMode ? 'Network Workstation' : 'Local Workstation'}</p>
             </div>
             <div className="h-9 w-9 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-400 shadow-inner">
               <User className="h-4 w-4" />
@@ -366,6 +443,16 @@ export default function App() {
       {/* MAIN WORKSPACE */}
       <main className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900/20 via-zinc-950 to-zinc-950 p-6 md:p-10 hide-scrollbar">
         <div className="max-w-7xl mx-auto pb-10">
+          {backendOnline === false && (
+            <div className="mb-6 rounded-xl border border-rose-900/40 bg-rose-950/20 px-5 py-4 text-xs font-mono text-rose-300">
+              Cannot reach the local backend at http://localhost:8080. Start it with <span className="text-rose-200">start-nexus.bat</span> (or <span className="text-rose-200">npm run dev</span> in nexus-7-backend).
+            </div>
+          )}
+          {backendOnline && health && !health.llmConfigured && (
+            <div className="mb-6 rounded-xl border border-amber-900/40 bg-amber-950/20 px-5 py-4 text-xs font-mono text-amber-300">
+              GEMINI_API_KEY is not set in nexus-7-backend/.env — agents and the App Factory cannot run until you add it and restart the backend.
+            </div>
+          )}
           
           {activeTab === 'dashboard' && (
             <div className="space-y-10">
@@ -387,16 +474,14 @@ export default function App() {
 
                 <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6 shadow-lg">
                   <div className="flex justify-between items-start mb-6">
-                    <p className="text-xs text-zinc-400 font-mono uppercase tracking-widest">Throttler Rate Limit (Redis)</p>
+                    <p className="text-xs text-zinc-400 font-mono uppercase tracking-widest">Guard Rate Limit</p>
                     <Activity className="h-5 w-5 text-blue-500/70" />
                   </div>
                   <div>
                     <h3 className="text-3xl font-bold text-zinc-100 font-mono flex items-baseline gap-2">
-                      21 <span className="text-sm text-zinc-500 font-sans font-medium">/ 25 remaining</span>
+                      {health ? health.guard.max : '—'} <span className="text-sm text-zinc-500 font-sans font-medium">req / {health ? Math.round(health.guard.windowMs / 1000) : 60}s per client</span>
                     </h3>
-                    <div className="w-full bg-zinc-800 h-1.5 mt-4 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full w-[84%]"></div>
-                    </div>
+                    <p className="text-xs text-blue-400 mt-4 font-mono">Injection scrubbing · secret redaction · {health ? health.guard.maxDirectiveChars.toLocaleString() : '—'} char cap</p>
                   </div>
                 </div>
 
@@ -407,10 +492,10 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-3xl font-bold text-zinc-100 font-mono flex items-baseline gap-2">
-                      12 <span className="text-sm text-zinc-500 font-sans font-medium">ms avg</span>
+                      {health?.database.latencyMs ?? '—'} <span className="text-sm text-zinc-500 font-sans font-medium">ms ping</span>
                     </h3>
                     <p className="text-xs text-cyan-400 mt-4 flex items-center gap-2 font-mono">
-                      <Server className="h-3.5 w-3.5" /> 3 safe connection pools active
+                      <Server className="h-3.5 w-3.5" /> {health ? health.database.driver : 'not connected'}
                     </p>
                   </div>
                 </div>
@@ -420,13 +505,22 @@ export default function App() {
               <div className="bg-zinc-900/20 border border-zinc-800 rounded-xl p-6">
                 <div className="flex items-center gap-2 mb-2">
                   <Cpu className="h-5 w-5 text-indigo-400" />
-                  <h2 className="text-sm font-bold tracking-widest uppercase text-zinc-200 font-mono">Autonomous Agent Registry</h2>
+                  <h2 className="text-sm font-bold tracking-widest uppercase text-zinc-200 font-mono">{showLegacy ? 'Legacy Municipal Agents' : 'Developer Agents'}</h2>
+                  <button
+                    onClick={() => setShowLegacy((v) => !v)}
+                    className="ml-auto text-[10px] font-mono text-zinc-500 hover:text-zinc-300 border border-zinc-800 rounded-md px-2 py-1 cursor-pointer"
+                  >
+                    {showLegacy ? '← Developer agents' : 'Legacy agents →'}
+                  </button>
                 </div>
-                <p className="text-[11px] text-zinc-500 font-mono mb-6">Tenant Isolated active administrative intelligence routines.</p>
+                <p className="text-[11px] text-zinc-500 font-mono mb-6">
+                  {showLegacy ? 'The original municipal administration personas.' : 'Everyday engineering help. Pick an agent, optionally attach one of your generated projects, and chat — the agent remembers the conversation.'}
+                </p>
 
                 <div className="flex gap-4 overflow-x-auto pb-4 hide-scrollbar snap-x">
-                  {agentRegistry.map((agent) => {
+                  {roster.map((agent) => {
                     const isSelected = selectedAgentId === agent.id;
+                    const stat = agentStats[agent.name];
                     return (
                       <div 
                         key={agent.id} 
@@ -457,11 +551,11 @@ export default function App() {
                         <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between">
                           <div>
                             <p className="text-[8px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Executed</p>
-                            <p className="text-xs font-bold text-zinc-200">{agent.runs} audits</p>
+                            <p className="text-xs font-bold text-zinc-200">{stat?.runs ?? 0} {stat?.runs === 1 ? 'run' : 'runs'}</p>
                           </div>
                           <div className="text-right">
                             <p className="text-[8px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Success Rate</p>
-                            <p className="text-xs font-bold text-emerald-400">{agent.success}%</p>
+                            <p className="text-xs font-bold text-emerald-400">{stat?.successRate != null ? `${stat.successRate}%` : '—'}</p>
                           </div>
                         </div>
                       </div>
@@ -493,6 +587,19 @@ export default function App() {
                       <p className="text-xs text-zinc-300 font-mono leading-relaxed opacity-90">
                         {currentAgent.context}
                       </p>
+                      <label htmlFor="context-project" className="block text-[10px] text-zinc-500 font-mono font-bold uppercase mt-4 mb-1.5">Project context</label>
+                      <select
+                        id="context-project"
+                        value={contextProjectId}
+                        onChange={(e) => setContextProjectId(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-indigo-500/50"
+                      >
+                        <option value="">None — general question</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      {contextProjectId && <p className="text-[10px] font-mono text-emerald-400/80 mt-1.5">The agent will read this project’s source with every message.</p>}
                     </div>
 
                     <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-5 flex-1 flex flex-col">
@@ -514,9 +621,21 @@ export default function App() {
                       <div className="text-[10px] text-zinc-500 font-mono font-bold mb-2 uppercase flex items-center gap-1">
                         <Layers className="h-3 w-3" /> Select Scenario Template
                       </div>
-                      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-[11px] font-mono text-indigo-300 border-l-2 border-l-indigo-500 cursor-pointer hover:bg-zinc-900 transition-colors mb-6 truncate">
-                        → Audit threat signatures and high-frequency access patterns...
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDirective(currentAgent.starter || `Using your expertise as ${currentAgent.role}, audit the current setup for the top 5 risks, rate each (low/medium/high), and give a prioritised remediation plan as a table.`)}
+                        className="w-full text-left bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-[11px] font-mono text-indigo-300 border-l-2 border-l-indigo-500 cursor-pointer hover:bg-zinc-900 transition-colors mb-3 truncate"
+                        title={currentAgent.starter}
+                      >
+                        → {currentAgent.starter || 'Top-5 risk audit with prioritised remediation table'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAgentSelect(currentAgent.id)}
+                        className="self-start flex items-center gap-1.5 text-[10px] font-mono text-zinc-500 hover:text-zinc-300 mb-6 cursor-pointer"
+                      >
+                        <Eraser className="h-3 w-3" /> Clear conversation
+                      </button>
 
                       <div className="mt-auto">
                         <button
@@ -639,7 +758,7 @@ export default function App() {
                       </form>
                       <div className="flex justify-between items-center mt-2 px-2">
                          <span className="text-[9px] font-mono text-indigo-500/70 flex items-center gap-1">
-                           <Activity className="h-3 w-3" /> Interactive Chat Proxy: Gemini 3.5 Active
+                           <Activity className="h-3 w-3" /> Engine: {engineName}
                          </span>
                       </div>
                     </div>
@@ -648,6 +767,9 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* APP FACTORY */}
+          {activeTab === 'factory' && <FactoryPanel key={authNonce} />}
 
           {/* GUARD CENTER */}
           {activeTab === 'guard' && (
@@ -659,7 +781,7 @@ export default function App() {
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                  <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl">
                     <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider mb-2">Threats Blocked</p>
-                    <p className="text-3xl font-bold text-rose-400">{interceptedAttacks.length}</p>
+                    <p className="text-3xl font-bold text-rose-400">{guardEvents.length}</p>
                  </div>
                  <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl">
                     <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider mb-2">Active Perimeter</p>
@@ -669,13 +791,13 @@ export default function App() {
                  </div>
                  <div className="bg-zinc-900/40 border border-zinc-800 p-6 rounded-xl">
                     <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider mb-2">Rate Limit Threshold</p>
-                    <p className="text-lg font-medium text-zinc-300 mt-1">5 req / 60 seconds</p>
+                    <p className="text-lg font-medium text-zinc-300 mt-1">{health ? `${health.guard.max} req / ${Math.round(health.guard.windowMs / 1000)} seconds` : '—'}</p>
                  </div>
               </div>
               <div className="rounded-xl bg-zinc-900/40 border border-red-900/30 overflow-hidden shadow-xl">
-                {interceptedAttacks.length === 0 ? (
+                {guardEvents.length === 0 ? (
                   <div className="p-16 text-center text-zinc-500 font-mono text-sm">
-                    Perimeter secure. No malicious traffic or spam detected in this session.
+                    Perimeter secure. No blocked requests recorded.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -689,17 +811,17 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800/50">
-                        {interceptedAttacks.map((attack) => (
+                        {guardEvents.map((attack) => (
                           <tr key={attack.id} className="hover:bg-red-950/10 transition-colors">
                             <td className="px-6 py-4 font-mono text-xs text-zinc-400">
-                              {new Date(attack.timestamp).toLocaleTimeString()}
+                              {new Date(attack.ts).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 text-xs font-medium text-zinc-300">
-                              {attack.agentTarget}
+                              {attack.target}
                             </td>
                             <td className="px-6 py-4 text-zinc-300 font-medium">
-                              <div className="max-w-xs truncate text-rose-200/70 font-mono text-xs" title={attack.directive}>
-                                {attack.directive}
+                              <div className="max-w-xs truncate text-rose-200/70 font-mono text-xs" title={attack.payload}>
+                                {attack.payload}
                               </div>
                             </td>
                             <td className="px-6 py-4">
@@ -738,11 +860,13 @@ export default function App() {
                {isLoadingLogs && telemetryLogs.length === 0 ? (
                  <div className="p-16 flex flex-col justify-center items-center text-zinc-500 space-y-4">
                    <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
-                   <p className="text-xs font-mono">Synchronizing telemetry stream from Firestore...</p>
+                   <p className="text-xs font-mono">Synchronizing telemetry stream from PostgreSQL...</p>
                  </div>
+               ) : logsError ? (
+                 <div className="p-16 text-center text-rose-400 font-mono text-sm">{logsError}</div>
                ) : telemetryLogs.length === 0 ? (
                  <div className="p-16 text-center text-zinc-500 font-mono text-sm border-t border-zinc-800">
-                   No active telemetry logs detected in database.
+                   No telemetry yet. Dispatch an agent or run the App Factory.
                  </div>
                ) : (
                  <div className="overflow-x-auto">
@@ -752,6 +876,7 @@ export default function App() {
                          <th className="px-6 py-4 font-semibold">Event Timestamp</th>
                          <th className="px-6 py-4 font-semibold">Active Agent Node</th>
                          <th className="px-6 py-4 font-semibold">Executed Directive</th>
+                         <th className="px-6 py-4 font-semibold text-right">Latency</th>
                          <th className="px-6 py-4 font-semibold text-right">Status Check</th>
                        </tr>
                      </thead>
@@ -759,11 +884,11 @@ export default function App() {
                        {telemetryLogs.map((log) => (
                          <tr key={log.id} className="hover:bg-zinc-800/30 transition-colors">
                            <td className="px-6 py-4 font-mono text-xs text-zinc-400">
-                             {formatTimestamp(log.timestamp)}
+                             {formatTimestamp(log.created_at)}
                            </td>
                            <td className="px-6 py-4">
                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-500/20 bg-indigo-500/10 text-xs font-medium text-indigo-400">
-                               {log.agentRole}
+                               {log.agent_role}
                              </span>
                            </td>
                            <td className="px-6 py-4 text-zinc-300 font-medium">
@@ -771,9 +896,12 @@ export default function App() {
                                {log.directive || log.action}
                              </div>
                            </td>
+                           <td className="px-6 py-4 text-right font-mono text-xs text-zinc-400">
+                             {log.latency_ms ? `${(log.latency_ms / 1000).toFixed(1)}s` : '—'}
+                           </td>
                            <td className="px-6 py-4 text-right">
-                             <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-widest uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                               {log.status || 'SUCCESS'}
+                             <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold tracking-widest uppercase border ${log.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : log.status === 'BLOCKED' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                               {log.status}
                              </span>
                            </td>
                          </tr>
@@ -808,9 +936,16 @@ export default function App() {
                    <div className="flex justify-between items-end mb-3">
                      
                      <label htmlFor="ingestion-input" className="block text-[10px] text-zinc-400 font-mono uppercase tracking-widest">Raw AI Studio Outputs / Fragment:</label>
-                     <button type="button" className="text-[10px] flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-mono transition-colors font-bold">
+                     <button type="button" onClick={() => ingestionFileRef.current?.click()} className="text-[10px] flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-mono transition-colors font-bold cursor-pointer">
                        <Download className="h-3.5 w-3.5" /> SELECT FILE
                      </button>
+                     <input
+                       ref={ingestionFileRef}
+                       type="file"
+                       accept=".ts,.tsx,.js,.jsx,.json,.sql,.md,.txt,.py,.css,.html"
+                       className="hidden"
+                       onChange={(e) => { loadIngestionFile(e.target.files?.[0]); e.target.value = ''; }}
+                     />
                    </div>
                    <div className="relative">
                      <textarea
@@ -818,6 +953,8 @@ export default function App() {
                        name="ingestionInput"
                        value={ingestionCode}
                        onChange={(e) => setIngestionCode(e.target.value)}
+                       onDragOver={(e) => e.preventDefault()}
+                       onDrop={(e) => { e.preventDefault(); loadIngestionFile(e.dataTransfer.files?.[0]); }}
                        disabled={isCompiling}
                        placeholder="Paste raw LLM response chunks, prompt specifications, or drag-and-drop code files here..."
                        className="w-full h-80 bg-black/40 border-2 border-dashed border-zinc-700 rounded-xl p-6 text-sm font-mono text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500/50 hover:border-zinc-600 transition-colors disabled:opacity-50 resize-none shadow-inner"
@@ -910,7 +1047,7 @@ export default function App() {
                     </div>
                     <div className="text-center">
                       <p className="text-xs font-bold text-zinc-200">Orchestrator</p>
-                      <p className="text-[9px] font-mono tracking-widest text-zinc-500 mt-1">Gemini 3.5 API</p>
+                      <p className="text-[9px] font-mono tracking-widest text-zinc-500 mt-1">{health?.engine || 'Gemini API'}</p>
                     </div>
                   </div>
 
@@ -926,7 +1063,7 @@ export default function App() {
                     </div>
                     <div className="text-center">
                       <p className="text-xs font-bold text-zinc-200">Telemetry DB</p>
-                      <p className="text-[9px] font-mono tracking-widest text-zinc-500 mt-1">Firebase Admin</p>
+                      <p className="text-[9px] font-mono tracking-widest text-zinc-500 mt-1">{health?.database.driver || 'PostgreSQL'}</p>
                     </div>
                   </div>
                 </div>
@@ -938,7 +1075,8 @@ export default function App() {
                     <div className="flex items-center gap-3 text-zinc-400"><span className="text-indigo-400 font-bold">01</span> Client dispatches instruction via REST API.</div>
                     <div className="flex items-center gap-3 text-zinc-400"><span className="text-rose-400 font-bold">02</span> Express middleware scrubs payload against threat signatures.</div>
                     <div className="flex items-center gap-3 text-zinc-400"><span className="text-cyan-400 font-bold">03</span> Node maps intent to Gemini System Persona & dispatches prompt.</div>
-                    <div className="flex items-center gap-3 text-zinc-400"><span className="text-emerald-400 font-bold">04</span> Successful execution & latency metrics logged to Firestore.</div>
+                    <div className="flex items-center gap-3 text-zinc-400"><span className="text-emerald-400 font-bold">04</span> Execution, latency and blocked attempts logged to PostgreSQL (secrets scrubbed).</div>
+                    <div className="flex items-center gap-3 text-zinc-400"><span className="text-indigo-400 font-bold">05</span> App Factory: contract → UI/Logic/Data agents → tsc sandbox → Vite + Capacitor project on local disk.</div>
                   </div>
                 </div>
               </div>
@@ -953,22 +1091,24 @@ export default function App() {
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5 text-zinc-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span> 
-            LIVE NODE SESSION: ARCH-00234
+            LOCAL HOST: {backendOnline ? 'LOCALHOST:8080' : 'OFFLINE'}
           </span>
           <span className="text-zinc-700 hidden md:inline">//</span>
-          <span className="text-zinc-400">SECURE: SHA-256</span>
+          <span className="text-zinc-400">ENGINE: {engineName}</span>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 min-w-0">
           <span className="flex items-center gap-1.5">
-            <Database className="h-3 w-3 text-blue-500/70" /> 
-            REDIS CLUSTER: <span className="text-emerald-400 font-bold">ACTIVE</span>
+            <Database className="h-3 w-3 text-blue-500/70" />
+            DB: <span className={health?.database.ready ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>{health?.database.driver || 'UNKNOWN'}</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <GitBranch className="h-3 w-3 text-indigo-500/70" /> 
-            CI/CD PIPELINE: <span className="text-emerald-400 font-bold">STABLE</span>
+          <span className="flex items-center gap-1.5 min-w-0" title={health?.factory.workspace}>
+            <Folder className="h-3 w-3 text-indigo-500/70 shrink-0" />
+            <span className="truncate normal-case">{health?.factory.workspace || '—'}</span>
           </span>
         </div>
       </footer>
+
+      {authNeeded && <LoginGate onSuccess={() => { setAuthNeeded(false); setAuthNonce((n) => n + 1); }} />}
 
       {/* COMMAND PALETTE (CTRL + K) */}
       {isPaletteOpen && (
@@ -988,6 +1128,9 @@ export default function App() {
              <div className="py-2">
                <button onClick={() => { setActiveTab('dashboard'); setIsPaletteOpen(false); }} className="w-full px-5 py-3 text-left text-sm text-zinc-300 hover:bg-indigo-900/20 hover:text-indigo-300 flex items-center gap-3 transition-colors cursor-pointer">
                  <Cpu className="h-4 w-4" /> Go to Control Room
+               </button>
+               <button onClick={() => { setActiveTab('factory'); setIsPaletteOpen(false); }} className="w-full px-5 py-3 text-left text-sm text-zinc-300 hover:bg-indigo-900/20 hover:text-indigo-300 flex items-center gap-3 transition-colors cursor-pointer">
+                 <Boxes className="h-4 w-4" /> Open App Factory
                </button>
                <button onClick={() => { setActiveTab('guard'); setIsPaletteOpen(false); }} className="w-full px-5 py-3 text-left text-sm text-zinc-300 hover:bg-indigo-900/20 hover:text-indigo-300 flex items-center gap-3 transition-colors cursor-pointer">
                  <Shield className="h-4 w-4" /> Open Guard Center Firewall
