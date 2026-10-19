@@ -193,6 +193,7 @@ export interface FactoryJob {
 }
 
 export type ModelTier = 'flash' | 'pro';
+export type BuildMode = 'auto' | 'staged' | 'single';
 
 export interface UsageTotals {
   calls: number;
@@ -247,10 +248,10 @@ export interface ProjectSummary {
   createdAt: string;
 }
 
-export const startFactoryRun = (brief: string, appName: string, verify: 'full' | 'syntax', tier: ModelTier = 'flash') =>
+export const startFactoryRun = (brief: string, appName: string, verify: 'full' | 'syntax', tier: ModelTier = 'flash', buildMode: BuildMode = 'auto') =>
   request<{ success: boolean; job: FactoryJob }>('/api/factory/projects', {
     method: 'POST',
-    body: JSON.stringify({ brief, appName, verify, tier, tenantId: TENANT_ID }),
+    body: JSON.stringify({ brief, appName, verify, tier, buildMode, tenantId: TENANT_ID }),
   });
 
 /**
@@ -286,6 +287,10 @@ export const fetchProjectFile = (id: string, path: string) =>
   request<{ success: boolean; path: string; content: string }>(
     `/api/factory/projects/${id}/file?path=${encodeURIComponent(path)}`
   );
+
+/** Generate missing files of an unfinished build, then verify, repair and build. */
+export const continueProjectBuild = (id: string) =>
+  request<{ success: boolean; job: FactoryJob }>(`/api/factory/projects/${id}/continue`, { method: 'POST' });
 
 export const reverifyProject = (id: string) =>
   request<{ success: boolean; job: FactoryJob }>(`/api/factory/projects/${id}/verify`, { method: 'POST' });

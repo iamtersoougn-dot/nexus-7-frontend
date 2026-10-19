@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import {
   exportUrl, fetchJob, fetchProjectFile, fetchProjectFiles, fetchProjects, openProjectFolder, previewUrl,
-  reverifyProject, startFactoryRun, refineProject, fetchRefineHistory, undoRefine, deleteProject, deleteFailedProjects,
+  reverifyProject, continueProjectBuild, startFactoryRun, refineProject, fetchRefineHistory, undoRefine, deleteProject, deleteFailedProjects,
   streamJob, fetchGitLog, publishToGithub, runProject, stopProject, buildApk, fetchApkState, apkDownloadUrl, fetchAndroidToolchain,
   briefFromFile, fetchTemplates, saveTemplate, deleteTemplate,
-  type FactoryJob, type RefineSnapshot, type ModelTier, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus,
+  type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus,
 } from '../services/api';
 
 const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
@@ -67,10 +67,47 @@ const StageIcon = ({ status }: { status: StageStatus }) => {
 
 const isActive = (status?: JobStatus) => status === 'running' || status === 'queued';
 
+const DRAFT_KEY = 'nexus.newBuild.v1';
+
+interface BuildDraft {
+  brief: string;
+  appName: string;
+  verifyMode: 'full' | 'syntax';
+  tier: ModelTier;
+  buildMode: BuildMode;
+}
+
+const DEFAULT_DRAFT: BuildDraft = { brief: '', appName: '', verifyMode: 'full', tier: 'flash', buildMode: 'auto' };
+
+/** The New Build form survives reloads (per browser). Storage can be blocked, so every access is guarded. */
+const loadDraft = (): BuildDraft => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') as Partial<BuildDraft>;
+    return {
+      brief: typeof raw.brief === 'string' ? raw.brief : '',
+      appName: typeof raw.appName === 'string' ? raw.appName : '',
+      verifyMode: raw.verifyMode === 'syntax' ? 'syntax' : 'full',
+      tier: raw.tier === 'pro' ? 'pro' : 'flash',
+      buildMode: raw.buildMode === 'staged' || raw.buildMode === 'single' ? raw.buildMode : 'auto',
+    };
+  } catch {
+    return DEFAULT_DRAFT;
+  }
+};
+
+const saveDraft = (draft: BuildDraft) => {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    /* storage unavailable */
+  }
+};
+
 export default function FactoryPanel() {
-  const [brief, setBrief] = useState('');
-  const [appName, setAppName] = useState('');
-  const [verifyMode, setVerifyMode] = useState<'full' | 'syntax'>('full');
+  const [brief, setBrief] = useState(() => loadDraft().brief);
+  const [appName, setAppName] = useState(() => loadDraft().appName);
+  const [verifyMode, setVerifyMode] = useState<'full' | 'syntax'>(() => loadDraft().verifyMode);
+  const [buildMode, setBuildMode] = useState<BuildMode>(() => loadDraft().buildMode);
   const [starting, setStarting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -90,7 +127,13 @@ export default function FactoryPanel() {
   const [refining, setRefining] = useState(false);
   const [history, setHistory] = useState<RefineSnapshot[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [tier, setTier] = useState<ModelTier>('flash');
+  const [tier, setTier] = useState<ModelTier>(() => loadDraft().tier);
+  const [continuing, setContinuing] = useState(false);
+
+  // Keep the New Build form across reloads, backend restarts and finished builds (cleared only with "Clear").
+  useEffect(() => {
+    saveDraft({ brief, appName, verifyMode, tier, buildMode });
+  }, [brief, appName, verifyMode, tier, buildMode]);
   const [templates, setTemplates] = useState<BriefTemplate[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
@@ -251,7 +294,7 @@ export default function FactoryPanel() {
     setStarting(true);
     setFormError(null);
     try {
-      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier);
+      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier, buildMode);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -272,7 +315,7 @@ export default function FactoryPanel() {
     setActionMessage(null);
     try {
       const retryName = job.name && job.name !== 'New application' ? job.name : '';
-      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier);
+      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier, buildMode);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -285,6 +328,33 @@ export default function FactoryPanel() {
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  /** Finish an unfinished build: write the missing files, then verify, repair and build. */
+  const handleContinue = async () => {
+    if (!selectedId) return;
+    setContinuing(true);
+    setActionMessage(null);
+    try {
+      const { job: next } = await continueProjectBuild(selectedId);
+      lastStatus.current = next.status;
+      setJob(next);
+      setDetailTab('log');
+      setPollKey((k) => k + 1);
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setContinuing(false);
+    }
+  };
+
+  /** Put a project's brief back into the New Build form (to rebuild it or start a variant). */
+  const handleLoadBrief = () => {
+    if (!job?.brief) return;
+    setBrief(job.brief);
+    if (job.name && job.name !== 'New application') setAppName(job.name);
+    setFormError(null);
+    setUploadNote(`Loaded the brief of “${job.name}” — adjust it and generate.`);
   };
 
   const handleReverify = async () => {
@@ -519,7 +589,19 @@ export default function FactoryPanel() {
             </div>
             <div>
               <div className="flex items-end justify-between gap-2">
-                <label htmlFor="factory-brief" className="text-[10px] text-zinc-500 font-mono font-bold uppercase">Product brief</label>
+                <span className="flex items-center gap-2">
+                  <label htmlFor="factory-brief" className="text-[10px] text-zinc-500 font-mono font-bold uppercase">Product brief</label>
+                  {(brief || appName) && (
+                    <button
+                      type="button"
+                      onClick={() => { setBrief(''); setAppName(''); setUploadNote(null); setFormError(null); }}
+                      className="text-[9px] font-mono text-zinc-600 hover:text-zinc-300 cursor-pointer"
+                      title="Clear the saved name and brief"
+                    >
+                      clear
+                    </button>
+                  )}
+                </span>
                 <button
                   type="button"
                   onClick={() => specInputRef.current?.click()}
@@ -640,6 +722,25 @@ export default function FactoryPanel() {
                 ))}
               </div>
             </fieldset>
+            <fieldset>
+              <legend className="text-[10px] text-zinc-500 font-mono font-bold uppercase mb-1.5">Build mode</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ['auto', 'Auto', 'staged if large'],
+                  ['staged', 'Staged', 'big apps, in parts'],
+                  ['single', 'Single', 'one pass, fastest'],
+                ] as const).map(([value, label, sub]) => (
+                  <label
+                    key={value}
+                    className={`cursor-pointer rounded-lg border px-2.5 py-2 text-[11px] font-mono ${buildMode === value ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+                  >
+                    <input type="radio" name="buildMode" value={value} checked={buildMode === value} onChange={() => setBuildMode(value)} className="sr-only" />
+                    <span className="font-bold block">{label}</span>
+                    <span className="text-[9px] text-zinc-500">{sub}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             {formError && <p className="text-[11px] font-mono text-rose-400">{formError}</p>}
             <button
               type="submit"
@@ -724,6 +825,25 @@ export default function FactoryPanel() {
                   <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate" title={job.projectDir}>{job.projectDir}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {(job.status === 'needs_attention' || job.status === 'failed') && job.contract && (
+                    <button
+                      onClick={handleContinue}
+                      disabled={continuing}
+                      className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-3 py-1.5 rounded-lg border bg-amber-500 border-amber-400 text-zinc-950 font-bold hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
+                      title="Write the files this build is missing, then verify, repair and rebuild — keeps everything already written"
+                    >
+                      {continuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Continue build
+                    </button>
+                  )}
+                  {job.brief && !running && (
+                    <button
+                      onClick={handleLoadBrief}
+                      className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider bg-zinc-800 border border-zinc-700 px-3 py-1.5 rounded-lg text-zinc-300 hover:text-white cursor-pointer"
+                      title="Copy this project's brief into the New Build form"
+                    >
+                      <Upload className="h-3.5 w-3.5 rotate-[-90deg]" /> Load brief
+                    </button>
+                  )}
                   {job.status === 'failed' && job.brief && (
                     <button
                       onClick={handleRetry}
