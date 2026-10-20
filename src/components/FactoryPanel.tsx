@@ -9,7 +9,7 @@ import {
   reverifyProject, continueProjectBuild, startFactoryRun, refineProject, fetchRefineHistory, undoRefine, deleteProject, deleteFailedProjects,
   streamJob, fetchGitLog, publishToGithub, runProject, stopProject, buildApk, fetchApkState, apkDownloadUrl, fetchAndroidToolchain,
   briefFromFile, fetchTemplates, saveTemplate, deleteTemplate,
-  type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus,
+  type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus, type QualityTier, type QualityReport, smokeScreenshotUrl,
 } from '../services/api';
 
 const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
@@ -19,7 +19,96 @@ const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
   { id: 'verify', label: 'Verify', hint: 'Static analysis + tsc --noEmit' },
   { id: 'repair', label: 'Repair', hint: 'Agents fix compiler errors' },
   { id: 'build', label: 'Build', hint: 'vite build for preview' },
+  { id: 'test', label: 'Test', hint: 'Run server, API tests, browser, placeholders' },
 ];
+
+const TIER_STYLE: Record<Exclude<QualityTier, 'none'>, { label: string; cls: string; title: string }> = {
+  gold: { label: 'Gold', cls: 'bg-amber-400/15 text-amber-300 border-amber-400/50', title: 'Production-ready: builds, tests pass, server + API + browser checks pass, no placeholders' },
+  silver: { label: 'Silver', cls: 'bg-zinc-300/10 text-zinc-200 border-zinc-300/40', title: 'Runs end to end: tests pass, server starts, sign-in and every API route work' },
+  bronze: { label: 'Bronze', cls: 'bg-orange-700/15 text-orange-300 border-orange-600/40', title: 'Compiles and builds' },
+};
+
+function TierBadge({ tier, size = 'sm' }: { tier?: QualityTier | null; size?: 'sm' | 'md' }) {
+  if (!tier || tier === 'none') return null;
+  const t = TIER_STYLE[tier];
+  return (
+    <span
+      title={t.title}
+      className={`inline-flex items-center gap-1 font-mono uppercase tracking-widest rounded border ${t.cls} ${size === 'md' ? 'text-[9px] px-2 py-0.5' : 'text-[8px] px-1.5 py-0.5'}`}
+    >
+      <span aria-hidden="true">{tier === 'gold' ? '★' : tier === 'silver' ? '◆' : '●'}</span> {t.label}
+    </span>
+  );
+}
+
+const CHECK_STYLE: Record<'pass' | 'fail' | 'warn' | 'skip', { icon: string; cls: string }> = {
+  pass: { icon: '✓', cls: 'text-emerald-400' },
+  fail: { icon: '✕', cls: 'text-rose-400' },
+  warn: { icon: '!', cls: 'text-amber-300' },
+  skip: { icon: '–', cls: 'text-zinc-600' },
+};
+
+function QualityPanel({ quality, projectId }: { quality: QualityReport; projectId: string }) {
+  const [showCalls, setShowCalls] = useState(false);
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h4 className="text-[10px] font-mono uppercase tracking-widest text-indigo-400">Quality checklist</h4>
+        <div className="flex items-center gap-2">
+          <TierBadge tier={quality.tier} size="md" />
+          <span className="text-[9px] font-mono text-zinc-600">{new Date(quality.checkedAt).toLocaleString()}</span>
+        </div>
+      </div>
+      {quality.legacy && (
+        <p className="text-[11px] text-zinc-400 mb-3">
+          This project uses the older template (no built-in server, accounts or payments), so it can reach Bronze only. Rebuild it with
+          <span className="text-zinc-200"> Load brief → Generate</span> to get the full-stack template and the runtime checks.
+        </p>
+      )}
+      <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
+        {quality.checks.map((c) => (
+          <li key={c.id} className="flex items-start gap-2 text-[11px]">
+            <span className={`font-mono font-bold w-3 text-center ${CHECK_STYLE[c.status].cls}`} aria-label={c.status}>{CHECK_STYLE[c.status].icon}</span>
+            <span className={c.status === 'skip' ? 'text-zinc-500' : 'text-zinc-200'}>
+              {c.label}
+              {c.detail && <span className="block text-[10px] text-zinc-500">{c.detail}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[9px] font-mono text-zinc-600">
+        Bronze = compiles + builds · Silver = + tests, server, sign-in, every API route · Gold = + browser test, no placeholders, API/SQL match the schema
+      </p>
+      {quality.apiCalls && quality.apiCalls.length > 0 && (
+        <div className="mt-3">
+          <button type="button" onClick={() => setShowCalls((v) => !v)} className="text-[10px] font-mono text-indigo-300 hover:text-indigo-200 cursor-pointer">
+            {showCalls ? 'Hide' : 'Show'} API test calls ({quality.apiCalls.length})
+          </button>
+          {showCalls && (
+            <ul className="mt-2 space-y-0.5 text-[10px] font-mono">
+              {quality.apiCalls.map((c, i) => (
+                <li key={i} className={c.ok ? 'text-zinc-400' : 'text-rose-300'}>
+                  {c.status || '—'} {c.method} {c.path}{c.note ? ` — ${c.note}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {quality.screenshot && (
+        <figure className="mt-4">
+          <img
+            src={smokeScreenshotUrl(projectId, quality.checkedAt)}
+            alt="The generated app in a headless browser after signing up"
+            className="w-48 rounded-lg border border-zinc-800"
+            loading="lazy"
+          />
+          <figcaption className="text-[9px] font-mono text-zinc-600 mt-1">Browser test screenshot (phone size)</figcaption>
+        </figure>
+      )}
+    </section>
+  );
+}
 
 const BRIEF_EXAMPLES = [
   'A mobile app for a Lagos laundry business: customers book pickups, track order status, and see price per item. Admin view lists today’s pickups.',
@@ -777,8 +866,11 @@ export default function FactoryPanel() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-zinc-200 truncate">{p.name}</span>
-                        <span className={`text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusStyle[p.status] || statusStyle.queued}`}>
-                          {statusLabel[p.status] || p.status}
+                        <span className="flex items-center gap-1 shrink-0">
+                          <TierBadge tier={p.qualityTier} />
+                          <span className={`text-[8px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusStyle[p.status] || statusStyle.queued}`}>
+                            {statusLabel[p.status] || p.status}
+                          </span>
                         </span>
                       </div>
                       <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate">{p.brief}</p>
@@ -821,6 +913,7 @@ export default function FactoryPanel() {
                     <span className={`text-[9px] font-mono uppercase tracking-widest px-2 py-0.5 rounded border ${statusStyle[job.status]}`}>
                       {statusLabel[job.status]}
                     </span>
+                    <TierBadge tier={job.verification?.quality?.tier} size="md" />
                   </div>
                   <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate" title={job.projectDir}>{job.projectDir}</p>
                 </div>
@@ -895,7 +988,7 @@ export default function FactoryPanel() {
               {actionMessage && <p className="px-5 py-2 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 bg-zinc-950/60">{actionMessage}</p>}
 
               {/* Stage rail */}
-              <div className="px-5 py-4 border-b border-zinc-800/60 grid grid-cols-3 md:grid-cols-6 gap-2">
+              <div className="px-5 py-4 border-b border-zinc-800/60 grid grid-cols-4 md:grid-cols-7 gap-2">
                 {STAGES.map((s) => (
                   <div key={s.id} className={`rounded-lg border px-2.5 py-2 ${job.stages[s.id] === 'running' ? 'border-indigo-500/40 bg-indigo-500/5' : 'border-zinc-800 bg-zinc-950/40'}`} title={s.hint}>
                     <div className="flex items-center gap-1.5">
@@ -952,7 +1045,7 @@ export default function FactoryPanel() {
                   ['files', 'Files', FileCode2],
                   ['contract', 'Contract', FileText],
                   ['log', 'Live Log', ScrollText],
-                  ['issues', `Issues${issues.length ? ` (${issues.length})` : ''}`, AlertTriangle],
+                  ['issues', `Quality${issues.length ? ` · ${issues.length} issue${issues.length === 1 ? '' : 's'}` : ''}`, AlertTriangle],
                 ] as const).map(([id, label, Icon]) => (
                   <button
                     key={id}
@@ -1308,6 +1401,7 @@ export default function FactoryPanel() {
 
                 {detailTab === 'issues' && (
                   <div className="p-5">
+                    {job.verification?.quality && <QualityPanel quality={job.verification.quality} projectId={job.id} />}
                     {issues.length === 0 ? (
                       <p className="text-xs font-mono text-zinc-500 flex items-center gap-2">
                         {job.verification?.ok ? <><CheckCircle2 className="h-4 w-4 text-emerald-400" /> No issues — the compiler is clean.</> : 'Not verified yet.'}

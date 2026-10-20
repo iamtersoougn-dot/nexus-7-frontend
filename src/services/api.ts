@@ -140,7 +140,24 @@ export const fetchStats = () => request<StatsResponse>(`/api/orchestrator/stats?
 // App Factory
 // ---------------------------------------------------------------------------------------------
 
-export type StageId = 'contract' | 'agents' | 'scaffold' | 'verify' | 'repair' | 'build';
+export type StageId = 'contract' | 'agents' | 'scaffold' | 'verify' | 'repair' | 'build' | 'test';
+export type QualityTier = 'gold' | 'silver' | 'bronze' | 'none';
+
+export interface QualityCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warn' | 'skip';
+  detail?: string;
+}
+
+export interface QualityReport {
+  tier: QualityTier;
+  checks: QualityCheck[];
+  apiCalls?: Array<{ method: string; path: string; status: number; ok: boolean; note?: string }>;
+  screenshot?: boolean;
+  legacy?: boolean;
+  checkedAt: string;
+}
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'needs_attention' | 'failed';
 
@@ -178,7 +195,7 @@ export interface FactoryJob {
   transitions: number;
   events: JobEvent[];
   contract?: FactoryContract;
-  verification?: { mode: 'syntax' | 'full'; ok: boolean; issues: VerificationIssue[]; tests?: { passed: number; failed: number } };
+  verification?: { mode: 'syntax' | 'full'; ok: boolean; issues: VerificationIssue[]; tests?: { passed: number; failed: number }; quality?: QualityReport };
   previewReady: boolean;
   previewPath?: string;
   redactions: number;
@@ -245,6 +262,7 @@ export interface ProjectSummary {
   previewReady: boolean;
   costUsd?: number;
   tier?: ModelTier;
+  qualityTier?: QualityTier | null;
   createdAt: string;
 }
 
@@ -299,6 +317,7 @@ export const openProjectFolder = (id: string) =>
   request<{ success: boolean; path: string }>(`/api/factory/projects/${id}/open`, { method: 'POST' });
 
 export const exportUrl = (id: string) => apiUrl(`/api/factory/projects/${id}/export.zip`);
+export const smokeScreenshotUrl = (id: string, nonce: string) => apiUrl(`/api/factory/projects/${id}/smoke.png?v=${encodeURIComponent(nonce)}`);
 export const previewUrl = (job: Pick<FactoryJob, 'previewPath'>) => apiUrl(job.previewPath || '');
 
 export interface GithubInfo {
