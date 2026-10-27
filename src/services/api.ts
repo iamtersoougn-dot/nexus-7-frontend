@@ -183,6 +183,9 @@ export interface FactoryContract {
   modules: Array<{ path: string; owner: string; exports: string; purpose?: string }>;
   screens: Array<{ name: string; purpose: string }>;
   apiRoutes: Array<{ method: string; path: string; purpose: string }>;
+  /** Capability add-ons (ai, charts, maps, camera, voice, whatsapp, model, developer, tools). */
+  capabilities?: string[];
+  projectType?: 'app' | 'api' | 'agent-tool';
 }
 
 export interface FactoryJob {

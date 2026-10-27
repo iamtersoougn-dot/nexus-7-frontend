@@ -156,6 +156,18 @@ const StageIcon = ({ status }: { status: StageStatus }) => {
 
 const isActive = (status?: JobStatus) => status === 'running' || status === 'queued';
 
+const ADD_ON_LABEL: Record<string, string> = {
+  ai: 'AI',
+  charts: 'Charts',
+  maps: 'Maps',
+  camera: 'Camera',
+  voice: 'Voice',
+  whatsapp: 'WhatsApp',
+  model: 'Model slot',
+  developer: 'API keys',
+  tools: 'Agent tools',
+};
+
 const DRAFT_KEY = 'nexus.newBuild.v1';
 
 interface BuildDraft {
@@ -916,6 +928,20 @@ export default function FactoryPanel() {
                     <TierBadge tier={job.verification?.quality?.tier} size="md" />
                   </div>
                   <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate" title={job.projectDir}>{job.projectDir}</p>
+                  {job.contract && (job.contract.projectType && job.contract.projectType !== 'app' || (job.contract.capabilities?.length ?? 0) > 0) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Project type and add-ons">
+                      {job.contract.projectType && job.contract.projectType !== 'app' && (
+                        <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300">
+                          {job.contract.projectType === 'api' ? 'API service' : 'Agent tool · MCP'}
+                        </span>
+                      )}
+                      {(job.contract.capabilities || []).map((c) => (
+                        <span key={c} className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border border-sky-500/30 bg-sky-500/10 text-sky-300">
+                          {ADD_ON_LABEL[c] || c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {(job.status === 'needs_attention' || job.status === 'failed') && job.contract && (
