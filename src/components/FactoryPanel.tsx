@@ -19,11 +19,11 @@ const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
   { id: 'verify', label: 'Verify', hint: 'Static analysis + tsc --noEmit' },
   { id: 'repair', label: 'Repair', hint: 'Agents fix compiler errors' },
   { id: 'build', label: 'Build', hint: 'vite build for preview' },
-  { id: 'test', label: 'Test', hint: 'Run server, API tests, browser, placeholders' },
+  { id: 'test', label: 'Test', hint: 'Run server, API tests with two users, browser, fake-feature scan' },
 ];
 
 const TIER_STYLE: Record<Exclude<QualityTier, 'none'>, { label: string; cls: string; title: string }> = {
-  gold: { label: 'Gold', cls: 'bg-amber-400/15 text-amber-300 border-amber-400/50', title: 'Production-ready: builds, tests pass, server + API + browser checks pass, no placeholders' },
+  gold: { label: 'Gold', cls: 'bg-amber-400/15 text-amber-300 border-amber-400/50', title: 'Production-ready: builds, tests pass, server + API + browser checks pass, data is really saved and protected per user, no placeholders or faked features' },
   silver: { label: 'Silver', cls: 'bg-zinc-300/10 text-zinc-200 border-zinc-300/40', title: 'Runs end to end: tests pass, server starts, sign-in and every API route work' },
   bronze: { label: 'Bronze', cls: 'bg-orange-700/15 text-orange-300 border-orange-600/40', title: 'Compiles and builds' },
 };
@@ -77,7 +77,7 @@ function QualityPanel({ quality, projectId }: { quality: QualityReport; projectI
         ))}
       </ul>
       <p className="mt-3 text-[9px] font-mono text-zinc-600">
-        Bronze = compiles + builds · Silver = + tests, server, sign-in, every API route · Gold = + browser test, no placeholders, API/SQL match the schema
+        Bronze = compiles + builds · Silver = + tests, server, sign-in, every API route · Gold = + browser test, real data (saved, per-user, protected), no placeholders or faked features, API/SQL match the schema
       </p>
       {quality.apiCalls && quality.apiCalls.length > 0 && (
         <div className="mt-3">
