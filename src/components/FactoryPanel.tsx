@@ -12,6 +12,7 @@ import {
   type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus, type QualityTier, type QualityReport, smokeScreenshotUrl,
 } from '../services/api';
 import PlanReview from './PlanReview';
+import DeployCard from './DeployCard';
 
 const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
   { id: 'contract', label: 'Contract', hint: 'Shared types & module signatures' },
@@ -1245,6 +1246,12 @@ export default function FactoryPanel() {
 
                 {detailTab === 'ship' && (
                   <div className="p-5 space-y-6">
+                    <DeployCard
+                      projectId={job.id}
+                      published={Boolean(github.info)}
+                      refreshKey={github.info ? new Date(github.info.pushedAt).getTime() : 0}
+                      paymentsEnabled={Boolean(job.contract?.payments?.enabled)}
+                    />
                     {/* Dev server */}
                     <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
                       <div className="flex items-center justify-between gap-3 mb-3">

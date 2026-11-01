@@ -366,6 +366,22 @@ export interface GithubInfo {
   commit: string | null;
 }
 
+export interface DeployInfo {
+  url: string;
+  provider: 'render';
+  savedAt: string;
+  lastCheck?: { ok: boolean; status?: number; database?: string; seed?: string; error?: string; checkedAt: string };
+}
+
+export const fetchDeployInfo = (id: string) =>
+  request<{ success: boolean; deploy: DeployInfo | null; renderLink: string | null; hasBlueprint: boolean }>(`/api/factory/projects/${id}/deploy`);
+
+export const saveLiveUrl = (id: string, url: string) =>
+  request<{ success: boolean; deploy: DeployInfo }>(`/api/factory/projects/${id}/deploy`, { method: 'POST', body: JSON.stringify({ url }) });
+
+export const checkLiveApp = (id: string) =>
+  request<{ success: boolean; deploy: DeployInfo }>(`/api/factory/projects/${id}/deploy/check`, { method: 'POST' });
+
 export const fetchGitLog = (id: string) =>
   request<{ success: boolean; commits: GitCommit[]; github: GithubInfo | null; githubConfigured: boolean }>(`/api/factory/projects/${id}/git`);
 
