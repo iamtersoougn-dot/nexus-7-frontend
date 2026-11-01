@@ -11,6 +11,7 @@ import {
   briefFromFile, fetchTemplates, saveTemplate, deleteTemplate,
   type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus, type QualityTier, type QualityReport, smokeScreenshotUrl,
 } from '../services/api';
+import PlanReview from './PlanReview';
 
 const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
   { id: 'contract', label: 'Contract', hint: 'Shared types & module signatures' },
@@ -133,6 +134,7 @@ const REFINE_EXAMPLES = [
 const statusStyle: Record<JobStatus, string> = {
   queued: 'bg-zinc-800 text-zinc-300 border-zinc-700',
   running: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
+  awaiting_review: 'bg-sky-500/10 text-sky-300 border-sky-500/40',
   succeeded: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
   needs_attention: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
   failed: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
@@ -141,6 +143,7 @@ const statusStyle: Record<JobStatus, string> = {
 const statusLabel: Record<JobStatus, string> = {
   queued: 'Queued',
   running: 'Running',
+  awaiting_review: 'Review plan',
   succeeded: 'Verified',
   needs_attention: 'Needs attention',
   failed: 'Failed',
@@ -176,9 +179,10 @@ interface BuildDraft {
   verifyMode: 'full' | 'syntax';
   tier: ModelTier;
   buildMode: BuildMode;
+  reviewPlan: boolean;
 }
 
-const DEFAULT_DRAFT: BuildDraft = { brief: '', appName: '', verifyMode: 'full', tier: 'flash', buildMode: 'auto' };
+const DEFAULT_DRAFT: BuildDraft = { brief: '', appName: '', verifyMode: 'full', tier: 'flash', buildMode: 'auto', reviewPlan: true };
 
 /** The New Build form survives reloads (per browser). Storage can be blocked, so every access is guarded. */
 const loadDraft = (): BuildDraft => {
@@ -190,6 +194,7 @@ const loadDraft = (): BuildDraft => {
       verifyMode: raw.verifyMode === 'syntax' ? 'syntax' : 'full',
       tier: raw.tier === 'pro' ? 'pro' : 'flash',
       buildMode: raw.buildMode === 'staged' || raw.buildMode === 'single' ? raw.buildMode : 'auto',
+      reviewPlan: raw.reviewPlan !== false,
     };
   } catch {
     return DEFAULT_DRAFT;
@@ -209,6 +214,7 @@ export default function FactoryPanel() {
   const [appName, setAppName] = useState(() => loadDraft().appName);
   const [verifyMode, setVerifyMode] = useState<'full' | 'syntax'>(() => loadDraft().verifyMode);
   const [buildMode, setBuildMode] = useState<BuildMode>(() => loadDraft().buildMode);
+  const [reviewPlan, setReviewPlan] = useState<boolean>(() => loadDraft().reviewPlan);
   const [starting, setStarting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -233,8 +239,8 @@ export default function FactoryPanel() {
 
   // Keep the New Build form across reloads, backend restarts and finished builds (cleared only with "Clear").
   useEffect(() => {
-    saveDraft({ brief, appName, verifyMode, tier, buildMode });
-  }, [brief, appName, verifyMode, tier, buildMode]);
+    saveDraft({ brief, appName, verifyMode, tier, buildMode, reviewPlan });
+  }, [brief, appName, verifyMode, tier, buildMode, reviewPlan]);
   const [templates, setTemplates] = useState<BriefTemplate[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
@@ -395,7 +401,7 @@ export default function FactoryPanel() {
     setStarting(true);
     setFormError(null);
     try {
-      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier, buildMode);
+      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier, buildMode, reviewPlan);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -416,7 +422,7 @@ export default function FactoryPanel() {
     setActionMessage(null);
     try {
       const retryName = job.name && job.name !== 'New application' ? job.name : '';
-      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier, buildMode);
+      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier, buildMode, reviewPlan);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -842,6 +848,13 @@ export default function FactoryPanel() {
                 ))}
               </div>
             </fieldset>
+            <label className="flex items-start gap-2.5 rounded-lg border border-zinc-800 px-3 py-2 cursor-pointer hover:border-zinc-700">
+              <input type="checkbox" className="mt-0.5" checked={reviewPlan} onChange={(e) => setReviewPlan(e.target.checked)} />
+              <span className="text-[11px] font-mono text-zinc-300">
+                <span className="font-bold block">Review the plan before building</span>
+                <span className="text-[9px] text-zinc-500">Check and edit screens, data, prices and add-ons first — saves wasted builds</span>
+              </span>
+            </label>
             {formError && <p className="text-[11px] font-mono text-rose-400">{formError}</p>}
             <button
               type="submit"
@@ -1012,6 +1025,18 @@ export default function FactoryPanel() {
                 </div>
               </div>
               {actionMessage && <p className="px-5 py-2 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 bg-zinc-950/60">{actionMessage}</p>}
+
+              {(job.status === 'awaiting_review' || (job.contract && job.stages.contract === 'running')) && job.contract && (
+                <PlanReview
+                  job={job}
+                  onUpdate={(next) => {
+                    lastStatus.current = next.status;
+                    setJob(next);
+                    setPollKey((k) => k + 1);
+                    void loadProjects();
+                  }}
+                />
+              )}
 
               {/* Stage rail */}
               <div className="px-5 py-4 border-b border-zinc-800/60 grid grid-cols-4 md:grid-cols-7 gap-2">

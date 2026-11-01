@@ -159,7 +159,7 @@ export interface QualityReport {
   checkedAt: string;
 }
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
-export type JobStatus = 'queued' | 'running' | 'succeeded' | 'needs_attention' | 'failed';
+export type JobStatus = 'queued' | 'running' | 'awaiting_review' | 'succeeded' | 'needs_attention' | 'failed';
 
 export interface JobEvent {
   ts: string;
@@ -184,6 +184,25 @@ export interface FactoryContract {
   screens: Array<{ name: string; purpose: string }>;
   apiRoutes: Array<{ method: string; path: string; purpose: string }>;
   /** Capability add-ons (ai, charts, maps, camera, voice, whatsapp, model, developer, tools). */
+  capabilities?: string[];
+  projectType?: 'app' | 'api' | 'agent-tool';
+  auth?: { required: boolean; notes?: string };
+  payments?: { enabled: boolean; products: PlanProduct[] };
+}
+
+export interface PlanProduct {
+  name: string;
+  amountKobo: number;
+  purpose: string;
+}
+
+/** The parts of a plan the user can change directly at Plan review. */
+export interface PlanEdits {
+  appName?: string;
+  summary?: string;
+  screens?: Array<{ name: string; purpose: string }>;
+  authRequired?: boolean;
+  payments?: { enabled: boolean; products: PlanProduct[] };
   capabilities?: string[];
   projectType?: 'app' | 'api' | 'agent-tool';
 }
@@ -269,11 +288,26 @@ export interface ProjectSummary {
   createdAt: string;
 }
 
-export const startFactoryRun = (brief: string, appName: string, verify: 'full' | 'syntax', tier: ModelTier = 'flash', buildMode: BuildMode = 'auto') =>
+export const startFactoryRun = (
+  brief: string,
+  appName: string,
+  verify: 'full' | 'syntax',
+  tier: ModelTier = 'flash',
+  buildMode: BuildMode = 'auto',
+  reviewPlan = false
+) =>
   request<{ success: boolean; job: FactoryJob }>('/api/factory/projects', {
     method: 'POST',
-    body: JSON.stringify({ brief, appName, verify, tier, buildMode, tenantId: TENANT_ID }),
+    body: JSON.stringify({ brief, appName, verify, tier, buildMode, reviewPlan, tenantId: TENANT_ID }),
   });
+
+/** Plan review: approve (optionally with edits) and start building. */
+export const approvePlan = (id: string, edits?: PlanEdits) =>
+  request<{ success: boolean; job: FactoryJob }>(`/api/factory/projects/${id}/plan/approve`, { method: 'POST', body: JSON.stringify({ edits }) });
+
+/** Plan review: redo the plan with the requested changes. */
+export const revisePlan = (id: string, feedback: string) =>
+  request<{ success: boolean; job: FactoryJob }>(`/api/factory/projects/${id}/plan/revise`, { method: 'POST', body: JSON.stringify({ feedback }) });
 
 /**
  * Live job updates over Server-Sent Events. Returns a close() function.
