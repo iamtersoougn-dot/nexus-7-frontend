@@ -27,6 +27,7 @@ interface Draft {
   screens: Array<{ name: string; purpose: string }>;
   authRequired: boolean;
   paymentsEnabled: boolean;
+  provider: 'paystack' | 'flutterwave';
   products: Array<{ name: string; naira: string; purpose: string }>;
   capabilities: string[];
   projectType: 'app' | 'api' | 'agent-tool';
@@ -38,6 +39,7 @@ const draftFrom = (c: FactoryContract): Draft => ({
   screens: c.screens.map((s) => ({ ...s })),
   authRequired: c.auth?.required !== false,
   paymentsEnabled: Boolean(c.payments?.enabled),
+  provider: c.payments?.provider === 'flutterwave' ? 'flutterwave' : 'paystack',
   products: (c.payments?.products || []).map((p) => ({ name: p.name, naira: String(p.amountKobo / 100), purpose: p.purpose })),
   capabilities: [...(c.capabilities || [])],
   projectType: c.projectType || 'app',
@@ -69,7 +71,7 @@ export default function PlanReview({ job, onUpdate }: { job: FactoryJob; onUpdat
       summary: draft.summary,
       screens: draft.screens.filter((s) => s.name.trim()),
       authRequired: draft.authRequired,
-      payments: { enabled: draft.paymentsEnabled && products.length > 0, products },
+      payments: { enabled: draft.paymentsEnabled && products.length > 0, provider: draft.provider, products },
       capabilities: draft.capabilities,
       projectType: draft.projectType,
     };
@@ -240,10 +242,27 @@ export default function PlanReview({ job, onUpdate }: { job: FactoryJob; onUpdat
           </label>
           <label className="flex items-center gap-2 text-[12px] text-zinc-300 cursor-pointer">
             <input type="checkbox" checked={draft.paymentsEnabled} onChange={(e) => set('paymentsEnabled', e.target.checked)} />
-            Take payments (Paystack)
+            Take payments
           </label>
           {draft.paymentsEnabled && (
             <div className="space-y-2 pl-6">
+              <div className="flex gap-2" role="radiogroup" aria-label="Payment provider">
+                {([
+                  ['paystack', 'Paystack'],
+                  ['flutterwave', 'Flutterwave'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={draft.provider === value}
+                    onClick={() => set('provider', value)}
+                    className={`text-[11px] font-mono px-2.5 py-1 rounded-md border cursor-pointer ${draft.provider === value ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-300' : 'border-zinc-800 text-zinc-400'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               {draft.products.map((p, i) => (
                 <div key={i} className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] gap-2">
                   <input

@@ -6,7 +6,19 @@ import { checkLiveApp, fetchDeployInfo, saveLiveUrl, type DeployInfo } from '../
  * Deploy to Render: Publish to GitHub (step 1) → open Render's Blueprint link (step 2) → paste the live address (step 3).
  * After the first deploy, every "Push latest to GitHub" redeploys automatically.
  */
-export default function DeployCard({ projectId, published, refreshKey, paymentsEnabled }: { projectId: string; published: boolean; refreshKey: number; paymentsEnabled: boolean }) {
+export default function DeployCard({
+  projectId,
+  published,
+  refreshKey,
+  paymentsEnabled,
+  paymentProvider = 'paystack',
+}: {
+  projectId: string;
+  published: boolean;
+  refreshKey: number;
+  paymentsEnabled: boolean;
+  paymentProvider?: 'paystack' | 'flutterwave';
+}) {
   const [deploy, setDeploy] = useState<DeployInfo | null>(null);
   const [renderLink, setRenderLink] = useState<string | null>(null);
   const [url, setUrl] = useState('');
@@ -93,7 +105,7 @@ export default function DeployCard({ projectId, published, refreshKey, paymentsE
               <p className="text-zinc-500">Publish to GitHub first — the button appears here.</p>
             )}
             <p>
-              Render shows what it will create; enter {paymentsEnabled ? 'your Paystack secret key and ' : ''}your Gemini key if asked, then click
+              Render shows what it will create; enter {paymentsEnabled ? (paymentProvider === 'flutterwave' ? 'your Flutterwave secret key and secret hash, and ' : 'your Paystack secret key and ') : ''}your Gemini key if asked, then click
               <span className="text-zinc-200"> Apply</span>. The first build takes a few minutes.
             </p>
             <p className="text-zinc-500">
@@ -153,7 +165,9 @@ export default function DeployCard({ projectId, published, refreshKey, paymentsE
             Updates: every <span className="text-zinc-300">Push latest to GitHub</span> redeploys automatically.
             {paymentsEnabled && (
               <>
-                {' '}Paystack webhook URL: <code className="text-zinc-300">{deploy.url}/api/payments/webhook</code>
+                {' '}
+                {paymentProvider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} webhook URL:{' '}
+                <code className="text-zinc-300">{deploy.url}/api/payments/{paymentProvider === 'flutterwave' ? 'flutterwave/webhook' : 'webhook'}</code>
               </>
             )}
           </p>

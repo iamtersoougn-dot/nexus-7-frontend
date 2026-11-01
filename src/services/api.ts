@@ -187,7 +187,7 @@ export interface FactoryContract {
   capabilities?: string[];
   projectType?: 'app' | 'api' | 'agent-tool';
   auth?: { required: boolean; notes?: string };
-  payments?: { enabled: boolean; products: PlanProduct[] };
+  payments?: { enabled: boolean; provider?: 'paystack' | 'flutterwave'; products: PlanProduct[] };
 }
 
 export interface PlanProduct {
@@ -202,7 +202,7 @@ export interface PlanEdits {
   summary?: string;
   screens?: Array<{ name: string; purpose: string }>;
   authRequired?: boolean;
-  payments?: { enabled: boolean; products: PlanProduct[] };
+  payments?: { enabled: boolean; provider?: 'paystack' | 'flutterwave'; products: PlanProduct[] };
   capabilities?: string[];
   projectType?: 'app' | 'api' | 'agent-tool';
 }

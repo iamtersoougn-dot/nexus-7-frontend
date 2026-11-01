@@ -1256,6 +1256,7 @@ export default function FactoryPanel() {
                       published={Boolean(github.info)}
                       refreshKey={github.info ? new Date(github.info.pushedAt).getTime() : 0}
                       paymentsEnabled={Boolean(job.contract?.payments?.enabled)}
+                      paymentProvider={job.contract?.payments?.provider === 'flutterwave' ? 'flutterwave' : 'paystack'}
                     />
                     {/* Dev server */}
                     <section className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
