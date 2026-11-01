@@ -170,6 +170,11 @@ const ADD_ON_LABEL: Record<string, string> = {
   model: 'Model slot',
   developer: 'API keys',
   tools: 'Agent tools',
+  audit: 'Audit log',
+  orgs: 'Organisations',
+  privacy: 'Data protection',
+  notify: 'Notifications',
+  files: 'File uploads',
 };
 
 const DRAFT_KEY = 'nexus.newBuild.v1';

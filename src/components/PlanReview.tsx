@@ -12,6 +12,11 @@ const ADD_ONS: Array<[string, string, string]> = [
   ['model', 'Model slot', 'plug in your own prediction model'],
   ['developer', 'API keys', 'public API with keys and OpenAPI docs'],
   ['tools', 'Agent tools', 'MCP tools for AI agents'],
+  ['orgs', 'Organisations', 'agencies/companies, staff ranks (officer → owner)'],
+  ['audit', 'Audit log', 'tamper-evident record of who did what'],
+  ['privacy', 'Data protection', 'NDPA consent, data export, account deletion'],
+  ['notify', 'Notifications', 'in-app, email (Resend) and SMS (Termii)'],
+  ['files', 'File uploads', 'documents, photos and evidence with fingerprints'],
 ];
 
 const naira = (kobo: number) => `₦${(kobo / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
