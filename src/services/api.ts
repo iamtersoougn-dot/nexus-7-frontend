@@ -62,6 +62,8 @@ export interface HealthResponse {
   factory: { workspace: string; maxTransitions: number };
   platform: string;
   uptimeSeconds: number;
+  /** Nexus-7's own source changed on disk after it started — restart to use the new version. */
+  codeUpdated?: boolean;
 }
 
 export const fetchHealth = () => request<HealthResponse>('/api/health');

@@ -448,6 +448,12 @@ export default function App() {
               Cannot reach the local backend at http://localhost:8080. Start it with <span className="text-rose-200">start-nexus.bat</span> (or <span className="text-rose-200">npm run dev</span> in nexus-7-backend).
             </div>
           )}
+          {backendOnline && health?.codeUpdated && (
+            <div className="mb-6 rounded-xl border border-sky-900/50 bg-sky-950/20 px-5 py-4 text-xs font-mono text-sky-300" role="status">
+              Nexus-7 was updated on disk after it started, so builds are still using the old version. Close both Nexus-7 windows and run{' '}
+              <span className="text-sky-100">start-nexus.bat</span> again before your next build or re-verify.
+            </div>
+          )}
           {backendOnline && health && !health.llmConfigured && (
             <div className="mb-6 rounded-xl border border-amber-900/40 bg-amber-950/20 px-5 py-4 text-xs font-mono text-amber-300">
               GEMINI_API_KEY is not set in nexus-7-backend/.env — agents and the App Factory cannot run until you add it and restart the backend.
