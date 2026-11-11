@@ -64,6 +64,8 @@ export interface HealthResponse {
   uptimeSeconds: number;
   /** Nexus-7's own source changed on disk after it started — restart to use the new version. */
   codeUpdated?: boolean;
+  /** Builds queued or in progress (they resume by themselves after a restart). */
+  activeBuilds?: number;
 }
 
 export const fetchHealth = () => request<HealthResponse>('/api/health');
@@ -231,7 +233,22 @@ export interface FactoryJob {
   createdAt: string;
   finishedAt?: string;
   error?: string;
+  /** Queue priority: 1 = urgent … 5 = lowest. */
+  priority?: number;
+  /** Where the job is waiting right now (null when it is not waiting for a lane). */
+  queue?: QueuePosition | null;
+  /** Set while builds are paused because the daily model quota is used up. */
+  pause?: { until: string; waitingCalls: number } | null;
 }
+
+/** Lanes: 'ai' = writing the code (several at once), 'checks' = compiling/building/testing on this machine (one at a time). */
+export interface QueuePosition {
+  lane: 'ai' | 'checks';
+  position: number;
+  of: number;
+}
+
+export const PRIORITY_LABELS: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Normal', 4: 'Low', 5: 'Lowest' };
 
 export type ModelTier = 'flash' | 'pro';
 export type BuildMode = 'auto' | 'staged' | 'single';
@@ -287,8 +304,39 @@ export interface ProjectSummary {
   costUsd?: number;
   tier?: ModelTier;
   qualityTier?: QualityTier | null;
+  priority?: number;
+  queue?: QueuePosition | null;
   createdAt: string;
 }
+
+export interface QueueOverview {
+  slots: { ai: number; checks: number };
+  running: { ai: QueueEntry[]; checks: QueueEntry[] };
+  waiting: { ai: QueueEntry[]; checks: QueueEntry[] };
+  /** Builds queued or in progress. */
+  active: number;
+  /** Plans waiting for approval. */
+  awaitingReview: number;
+  pause: { until: string; waitingCalls: number } | null;
+}
+export interface QueueEntry {
+  id: string;
+  name: string;
+  priority: number;
+}
+
+export const fetchQueue = () => request<{ success: boolean } & QueueOverview>('/api/factory/queue');
+
+/** Approve every plan that is waiting for review; the builds then run unattended in priority order. */
+export const approveAllPlans = () =>
+  request<{ success: boolean; approved: QueueEntry[] }>('/api/factory/plans/approve-all', { method: 'POST', body: '{}' });
+
+export const setProjectPriority = (id: string, priority: number) =>
+  request<{ success: boolean; priority: number; queue: QueuePosition | null }>(`/api/factory/projects/${id}/priority`, { method: 'POST', body: JSON.stringify({ priority }) });
+
+/** Take a build that has not started writing yet out of the queue (its plan is kept). */
+export const dequeueProject = (id: string) =>
+  request<{ success: boolean }>(`/api/factory/projects/${id}/dequeue`, { method: 'POST', body: '{}' });
 
 export const startFactoryRun = (
   brief: string,
@@ -296,11 +344,12 @@ export const startFactoryRun = (
   verify: 'full' | 'syntax',
   tier: ModelTier = 'flash',
   buildMode: BuildMode = 'auto',
-  reviewPlan = false
+  reviewPlan = false,
+  priority = 3
 ) =>
   request<{ success: boolean; job: FactoryJob }>('/api/factory/projects', {
     method: 'POST',
-    body: JSON.stringify({ brief, appName, verify, tier, buildMode, reviewPlan, tenantId: TENANT_ID }),
+    body: JSON.stringify({ brief, appName, verify, tier, buildMode, reviewPlan, priority, tenantId: TENANT_ID }),
   });
 
 /** Plan review: approve (optionally with edits) and start building. */

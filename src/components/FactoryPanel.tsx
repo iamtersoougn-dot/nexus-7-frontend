@@ -9,6 +9,7 @@ import {
   reverifyProject, continueProjectBuild, startFactoryRun, refineProject, fetchRefineHistory, undoRefine, deleteProject, deleteFailedProjects,
   streamJob, fetchGitLog, publishToGithub, runProject, stopProject, buildApk, fetchApkState, apkDownloadUrl, fetchAndroidToolchain,
   briefFromFile, fetchTemplates, saveTemplate, deleteTemplate,
+  fetchQueue, approveAllPlans, setProjectPriority, dequeueProject, PRIORITY_LABELS, type QueueOverview,
   type FactoryJob, type RefineSnapshot, type ModelTier, type BuildMode, type GitCommit, type GithubInfo, type BriefTemplate, type JobStatus, type ProjectSummary, type StageId, type StageStatus, type QualityTier, type QualityReport, smokeScreenshotUrl,
 } from '../services/api';
 import PlanReview from './PlanReview';
@@ -186,9 +187,13 @@ interface BuildDraft {
   tier: ModelTier;
   buildMode: BuildMode;
   reviewPlan: boolean;
+  priority: number;
 }
 
-const DEFAULT_DRAFT: BuildDraft = { brief: '', appName: '', verifyMode: 'full', tier: 'flash', buildMode: 'auto', reviewPlan: true };
+const DEFAULT_DRAFT: BuildDraft = { brief: '', appName: '', verifyMode: 'full', tier: 'flash', buildMode: 'auto', reviewPlan: true, priority: 3 };
+
+const LANE_NAME = { ai: 'writing lane', checks: 'checks lane' } as const;
+const clockTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /** The New Build form survives reloads (per browser). Storage can be blocked, so every access is guarded. */
 const loadDraft = (): BuildDraft => {
@@ -201,6 +206,7 @@ const loadDraft = (): BuildDraft => {
       tier: raw.tier === 'pro' ? 'pro' : 'flash',
       buildMode: raw.buildMode === 'staged' || raw.buildMode === 'single' ? raw.buildMode : 'auto',
       reviewPlan: raw.reviewPlan !== false,
+      priority: [1, 2, 3, 4, 5].includes(Number(raw.priority)) ? Number(raw.priority) : 3,
     };
   } catch {
     return DEFAULT_DRAFT;
@@ -221,6 +227,9 @@ export default function FactoryPanel() {
   const [verifyMode, setVerifyMode] = useState<'full' | 'syntax'>(() => loadDraft().verifyMode);
   const [buildMode, setBuildMode] = useState<BuildMode>(() => loadDraft().buildMode);
   const [reviewPlan, setReviewPlan] = useState<boolean>(() => loadDraft().reviewPlan);
+  const [priority, setPriority] = useState<number>(() => loadDraft().priority);
+  const [queue, setQueue] = useState<QueueOverview | null>(null);
+  const [approvingAll, setApprovingAll] = useState(false);
   const [starting, setStarting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -245,8 +254,8 @@ export default function FactoryPanel() {
 
   // Keep the New Build form across reloads, backend restarts and finished builds (cleared only with "Clear").
   useEffect(() => {
-    saveDraft({ brief, appName, verifyMode, tier, buildMode, reviewPlan });
-  }, [brief, appName, verifyMode, tier, buildMode, reviewPlan]);
+    saveDraft({ brief, appName, verifyMode, tier, buildMode, reviewPlan, priority });
+  }, [brief, appName, verifyMode, tier, buildMode, reviewPlan, priority]);
   const [templates, setTemplates] = useState<BriefTemplate[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
@@ -297,6 +306,68 @@ export default function FactoryPanel() {
       /* offline */
     }
   }, []);
+
+  // The queue at a glance (what is writing, checking, waiting, and plans to approve). Refreshed every few seconds
+  // while anything is in progress, so the project list keeps up with builds other than the one that is open.
+  const queueBusy = Boolean(queue && (queue.active > 0 || queue.awaitingReview > 0));
+  const queueSignature = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await fetchQueue();
+        if (cancelled) return;
+        const signature = `${data.active}/${data.awaitingReview}/${data.waiting.ai.length}/${data.waiting.checks.length}`;
+        if (queueSignature.current !== null && queueSignature.current !== signature) void loadProjects();
+        queueSignature.current = signature;
+        setQueue(data);
+      } catch {
+        /* backend offline or an older backend without the queue */
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, queueBusy ? 4000 : 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [queueBusy, loadProjects]);
+
+  const handleApproveAll = async () => {
+    setApprovingAll(true);
+    setFormError(null);
+    try {
+      const { approved } = await approveAllPlans();
+      setActionMessage(approved.length ? `Approved ${approved.length} plan(s) — they build in priority order without stopping.` : 'No plans were waiting for approval.');
+      setPollKey((k) => k + 1);
+      void loadProjects();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApprovingAll(false);
+    }
+  };
+
+  const handleSetPriority = async (id: string, value: number) => {
+    try {
+      const result = await setProjectPriority(id, value);
+      setJob((current) => (current && current.id === id ? { ...current, priority: result.priority, queue: result.queue } : current));
+      void loadProjects();
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDequeue = async (id: string) => {
+    try {
+      await dequeueProject(id);
+      setActionMessage('Removed from the queue. The plan is kept — approve it to queue the build again.');
+      setPollKey((k) => k + 1);
+      void loadProjects();
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const loadShipInfo = useCallback(async (id: string) => {
     try {
@@ -407,7 +478,7 @@ export default function FactoryPanel() {
     setStarting(true);
     setFormError(null);
     try {
-      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier, buildMode, reviewPlan);
+      const { job: created } = await startFactoryRun(brief.trim(), appName.trim(), verifyMode, tier, buildMode, reviewPlan, priority);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -428,7 +499,7 @@ export default function FactoryPanel() {
     setActionMessage(null);
     try {
       const retryName = job.name && job.name !== 'New application' ? job.name : '';
-      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier, buildMode, reviewPlan);
+      const { job: created } = await startFactoryRun(job.brief, retryName, verifyMode, tier, buildMode, reviewPlan, job.priority || priority);
       lastStatus.current = created.status;
       setSelectedId(created.id);
       setJob(created);
@@ -854,11 +925,26 @@ export default function FactoryPanel() {
                 ))}
               </div>
             </fieldset>
+            <fieldset>
+              <legend className="text-[10px] text-zinc-500 font-mono font-bold uppercase mb-1.5">Priority in the queue</legend>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <label
+                    key={value}
+                    className={`cursor-pointer rounded-lg border px-1 py-2 text-center text-[10px] font-mono font-bold ${priority === value ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+                  >
+                    <input type="radio" name="priority" value={value} checked={priority === value} onChange={() => setPriority(value)} className="sr-only" />
+                    {PRIORITY_LABELS[value]}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[9px] font-mono text-zinc-500 mt-1.5">Add as many builds as you like — higher priority builds take free slots first.</p>
+            </fieldset>
             <label className="flex items-start gap-2.5 rounded-lg border border-zinc-800 px-3 py-2 cursor-pointer hover:border-zinc-700">
               <input type="checkbox" className="mt-0.5" checked={reviewPlan} onChange={(e) => setReviewPlan(e.target.checked)} />
               <span className="text-[11px] font-mono text-zinc-300">
                 <span className="font-bold block">Review the plan before building</span>
-                <span className="text-[9px] text-zinc-500">Check and edit screens, data, prices and add-ons first — saves wasted builds</span>
+                <span className="text-[9px] text-zinc-500">Plans are ready in about a minute; approve them one by one or all at once. Untick to build without stopping.</span>
               </span>
             </label>
             {formError && <p className="text-[11px] font-mono text-rose-400">{formError}</p>}
@@ -867,7 +953,7 @@ export default function FactoryPanel() {
               disabled={starting || !brief.trim()}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white py-3 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
-              {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Generate Application
+              {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Add to build queue
             </button>
           </form>
 
@@ -885,6 +971,33 @@ export default function FactoryPanel() {
                 </button>
               </div>
             </div>
+            {queue && (queue.active > 0 || queue.awaitingReview > 0 || queue.pause) && (
+              <div className="px-5 py-3 border-b border-zinc-800 bg-zinc-950/60 space-y-2" role="status" aria-label="Build queue">
+                <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
+                  <span className="text-zinc-200 font-bold">Queue:</span>{' '}
+                  {queue.running.ai.length} writing · {queue.running.checks.length} checking · {queue.waiting.ai.length + queue.waiting.checks.length} waiting
+                  <span className="text-zinc-600"> (slots: {queue.slots.ai} writing, {queue.slots.checks} checking)</span>
+                </p>
+                {queue.pause && (
+                  <p className="text-[10px] font-mono text-amber-300 leading-relaxed">
+                    Paused: the daily model quota is used up. Builds carry on by themselves around {clockTime(queue.pause.until)} — nothing to do.
+                  </p>
+                )}
+                {queue.awaitingReview > 0 && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] font-mono text-sky-300">{queue.awaitingReview} plan{queue.awaitingReview === 1 ? '' : 's'} waiting for your approval</span>
+                    <button
+                      onClick={handleApproveAll}
+                      disabled={approvingAll}
+                      className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border bg-sky-600 border-sky-500 text-white hover:bg-sky-500 disabled:opacity-50 cursor-pointer"
+                      title="Approve every waiting plan as it stands. Open a plan first if you want to edit it."
+                    >
+                      {approvingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Approve all
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             {projects.length === 0 ? (
               <p className="p-5 text-[11px] font-mono text-zinc-500">No projects yet. Your first build will appear here.</p>
             ) : (
@@ -905,6 +1018,12 @@ export default function FactoryPanel() {
                         </span>
                       </div>
                       <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate">{p.brief}</p>
+                      {(p.queue || (isActive(p.status) && p.priority && p.priority !== 3)) && (
+                        <p className="text-[9px] font-mono text-indigo-300/90 mt-1">
+                          {p.queue ? `Waiting for the ${LANE_NAME[p.queue.lane]} — ${p.queue.position} of ${p.queue.of}` : 'In progress'}
+                          {p.priority ? ` · priority: ${PRIORITY_LABELS[p.priority] || p.priority}` : ''}
+                        </p>
+                      )}
                       <p className="text-[9px] font-mono text-zinc-600 mt-1 flex justify-between gap-2">
                         <span>{new Date(p.createdAt).toLocaleString()}</span>
                         {p.costUsd ? <span title="Estimated model cost">{p.tier === 'pro' ? 'Pro · ' : ''}≈{fmtCost(p.costUsd)}</span> : null}
@@ -926,7 +1045,7 @@ export default function FactoryPanel() {
               </div>
               <h3 className="text-lg font-bold text-zinc-300 font-mono tracking-widest uppercase mb-2">Factory Idle</h3>
               <p className="text-xs text-zinc-500 font-mono max-w-md leading-relaxed">
-                Write a brief and press Generate, or pick an existing project. Projects are written to your workspace folder
+                Write a brief and add it to the build queue, or pick an existing project. Projects are written to your workspace folder
                 and can be opened in VS Code, exported as .zip, or packaged for Android/iOS with Capacitor.
               </p>
             </div>
@@ -1031,6 +1150,37 @@ export default function FactoryPanel() {
                 </div>
               </div>
               {actionMessage && <p className="px-5 py-2 text-[10px] font-mono text-zinc-400 border-b border-zinc-800 bg-zinc-950/60">{actionMessage}</p>}
+              {(running || job.status === 'awaiting_review') && (
+                <div className="px-5 py-2 border-b border-zinc-800 bg-zinc-950/60 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-mono">
+                  <label className="flex items-center gap-2 text-zinc-400">
+                    Priority
+                    <select
+                      value={job.priority || 3}
+                      onChange={(e) => void handleSetPriority(job.id, Number(e.target.value))}
+                      className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-1 text-zinc-200"
+                    >
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <option key={value} value={value}>{PRIORITY_LABELS[value]}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {job.queue && (
+                    <span className="text-indigo-300">
+                      Waiting for the {LANE_NAME[job.queue.lane]} — {job.queue.position} of {job.queue.of} in line
+                    </span>
+                  )}
+                  {job.queue?.lane === 'ai' && (
+                    <button onClick={() => void handleDequeue(job.id)} className="text-rose-300 hover:text-rose-200 underline underline-offset-2 cursor-pointer">
+                      Remove from queue
+                    </button>
+                  )}
+                  {job.pause && (
+                    <span className="text-amber-300">
+                      Paused: daily model quota used up — carries on by itself around {clockTime(job.pause.until)}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {(job.status === 'awaiting_review' || (job.contract && job.stages.contract === 'running')) && job.contract && (
                 <PlanReview

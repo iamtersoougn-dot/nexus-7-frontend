@@ -452,6 +452,7 @@ export default function App() {
             <div className="mb-6 rounded-xl border border-sky-900/50 bg-sky-950/20 px-5 py-4 text-xs font-mono text-sky-300" role="status">
               Nexus-7 was updated on disk after it started, so builds are still using the old version. Close both Nexus-7 windows and run{' '}
               <span className="text-sky-100">start-nexus.bat</span> again before your next build or re-verify.
+              {health.activeBuilds ? ` ${health.activeBuilds} build${health.activeBuilds === 1 ? ' is' : 's are'} queued or running — they carry on by themselves after the restart.` : ''}
             </div>
           )}
           {backendOnline && health && !health.llmConfigured && (
