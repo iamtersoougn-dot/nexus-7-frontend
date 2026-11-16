@@ -66,6 +66,16 @@ export interface HealthResponse {
   codeUpdated?: boolean;
   /** Builds queued or in progress (they resume by themselves after a restart). */
   activeBuilds?: number;
+  /** Whether Google accepts the Gemini API key. */
+  llmKey?: LlmKeyStatus;
+}
+
+export interface LlmKeyStatus {
+  state: 'ok' | 'rejected' | 'missing' | 'unchecked' | 'unreachable';
+  message?: string;
+  checkedAt?: string;
+  /** Build steps paused until a working key is saved. */
+  waitingCalls: number;
 }
 
 export const fetchHealth = () => request<HealthResponse>('/api/health');
@@ -318,6 +328,7 @@ export interface QueueOverview {
   /** Plans waiting for approval. */
   awaitingReview: number;
   pause: { until: string; waitingCalls: number } | null;
+  key?: LlmKeyStatus;
 }
 export interface QueueEntry {
   id: string;

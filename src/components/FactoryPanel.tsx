@@ -971,7 +971,7 @@ export default function FactoryPanel() {
                 </button>
               </div>
             </div>
-            {queue && (queue.active > 0 || queue.awaitingReview > 0 || queue.pause) && (
+            {queue && (queue.active > 0 || queue.awaitingReview > 0 || queue.pause || queue.key?.waitingCalls) && (
               <div className="px-5 py-3 border-b border-zinc-800 bg-zinc-950/60 space-y-2" role="status" aria-label="Build queue">
                 <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
                   <span className="text-zinc-200 font-bold">Queue:</span>{' '}
@@ -981,6 +981,11 @@ export default function FactoryPanel() {
                 {queue.pause && (
                   <p className="text-[10px] font-mono text-amber-300 leading-relaxed">
                     Paused: the daily model quota is used up. Builds carry on by themselves around {clockTime(queue.pause.until)} — nothing to do.
+                  </p>
+                )}
+                {queue.key && queue.key.waitingCalls > 0 && (
+                  <p className="text-[10px] font-mono text-rose-300 leading-relaxed">
+                    Paused: Google rejected the Gemini API key. Save a working key in .env and builds carry on by themselves.
                   </p>
                 )}
                 {queue.awaitingReview > 0 && (

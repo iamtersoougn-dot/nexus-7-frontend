@@ -448,6 +448,23 @@ export default function App() {
               Cannot reach the local backend at http://localhost:8080. Start it with <span className="text-rose-200">start-nexus.bat</span> (or <span className="text-rose-200">npm run dev</span> in nexus-7-backend).
             </div>
           )}
+          {backendOnline && (health?.llmKey?.state === 'rejected' || health?.llmKey?.state === 'missing') && (
+            <div className="mb-6 rounded-xl border border-rose-900/60 bg-rose-950/30 px-5 py-4 text-xs font-mono text-rose-200 space-y-2" role="alert">
+              <p className="font-bold text-rose-100">
+                {health.llmKey.state === 'missing' ? 'No Gemini API key is set.' : 'Google rejected the Gemini API key.'}
+                {health.llmKey.waitingCalls > 0 ? ` ${health.llmKey.waitingCalls} build step(s) are paused until it works.` : ''}
+              </p>
+              <ol className="list-decimal pl-5 space-y-1 text-rose-200/90">
+                <li>Open aistudio.google.com/app/apikey, then copy your key or click Create API key (free tier costs nothing).</li>
+                <li>
+                  In <span className="text-rose-50">nexus-7-backend\.env</span> set <span className="text-rose-50">GEMINI_API_KEY=</span> followed by the key
+                  (no spaces, no quote marks) and save.
+                </li>
+                <li>That's all: Nexus-7 re-reads the key within a minute and paused builds carry on by themselves. No restart needed.</li>
+              </ol>
+              {health.llmKey.message && <p className="text-[10px] text-rose-300/70">Google said: {health.llmKey.message}</p>}
+            </div>
+          )}
           {backendOnline && health?.codeUpdated && (
             <div className="mb-6 rounded-xl border border-sky-900/50 bg-sky-950/20 px-5 py-4 text-xs font-mono text-sky-300" role="status">
               Nexus-7 was updated on disk after it started, so builds are still using the old version. Close both Nexus-7 windows and run{' '}
