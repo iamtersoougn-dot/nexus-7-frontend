@@ -325,9 +325,30 @@ export interface ProjectSummary {
   costUsd?: number;
   tier?: ModelTier;
   qualityTier?: QualityTier | null;
+  /** One-paragraph description of what the app does (from its plan). */
+  summary?: string | null;
   priority?: number;
   queue?: QueuePosition | null;
   createdAt: string;
+}
+
+/** Nexus-7's description of an app it built (also kept in the app's folder as APP_PROFILE.md). */
+export interface AppProfile {
+  name: string;
+  summary: string;
+  kind: string;
+  features: string[];
+  later: Array<{ text: string; reason: string }>;
+  screens: Array<{ name: string; purpose: string }>;
+  dataTypes: Array<{ name: string; fields: string[] }>;
+  apiRoutes: string[];
+  accounts: string;
+  payments: string;
+  addOns: string[];
+  stack: string[];
+  quality: { tier?: string; tests?: string; checkedAt?: string; issues?: number } | null;
+  changes: Array<{ when: string; what: string }>;
+  build: { created?: string; lastRun?: string; folder: string; files?: number; costUsd?: number; model?: string; github?: string };
 }
 
 export interface QueueOverview {
@@ -426,6 +447,9 @@ export const reverifyProject = (id: string) =>
 export const openProjectFolder = (id: string) =>
   request<{ success: boolean; path: string }>(`/api/factory/projects/${id}/open`, { method: 'POST' });
 
+export const fetchAppProfile = (id: string) =>
+  request<{ success: boolean; profile: AppProfile; markdown: string }>(`/api/factory/projects/${id}/profile`);
+export const appProfileDownloadUrl = (id: string) => apiUrl(`/api/factory/projects/${id}/profile?format=md`);
 export const exportUrl = (id: string) => apiUrl(`/api/factory/projects/${id}/export.zip`);
 export const smokeScreenshotUrl = (id: string, nonce: string) => apiUrl(`/api/factory/projects/${id}/smoke.png?v=${encodeURIComponent(nonce)}`);
 export const previewUrl = (job: Pick<FactoryJob, 'previewPath'>) => apiUrl(job.previewPath || '');

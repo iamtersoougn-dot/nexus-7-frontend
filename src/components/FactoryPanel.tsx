@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Info,
   AlertTriangle, Timer, Boxes, CheckCircle2, ChevronRight, Circle, Download, Eye, FileCode2, FileText, Folder, FolderOpen,
   Hammer, History, Loader2, Monitor, Play, RefreshCw, ScrollText, ShieldCheck, Smartphone, Tablet, Trash2, Undo2,
   Wand2, XCircle, Upload, Save, Square, ExternalLink, GitBranch, Rocket, Zap, Brain, Coins, FlaskConical, X,
@@ -14,6 +15,7 @@ import {
 } from '../services/api';
 import PlanReview from './PlanReview';
 import DeployCard from './DeployCard';
+import AppProfileCard from './AppProfileCard';
 
 const STAGES: Array<{ id: StageId; label: string; hint: string }> = [
   { id: 'contract', label: 'Contract', hint: 'Shared types & module signatures' },
@@ -120,7 +122,7 @@ const BRIEF_EXAMPLES = [
 ];
 
 type Viewport = 'desktop' | 'iphone' | 'android';
-type DetailTab = 'preview' | 'refine' | 'ship' | 'files' | 'contract' | 'log' | 'issues';
+type DetailTab = 'about' | 'preview' | 'refine' | 'ship' | 'files' | 'contract' | 'log' | 'issues';
 
 const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 const fmtMs = (ms: number) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`);
@@ -1022,7 +1024,7 @@ export default function FactoryPanel() {
                           </span>
                         </span>
                       </div>
-                      <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate">{p.brief}</p>
+                      <p className="text-[10px] font-mono text-zinc-500 mt-1 truncate" title={p.summary || p.brief}>{p.summary || p.brief}</p>
                       {(p.queue || (isActive(p.status) && p.priority && p.priority !== 3)) && (
                         <p className="text-[9px] font-mono text-indigo-300/90 mt-1">
                           {p.queue ? `Waiting for the ${LANE_NAME[p.queue.lane]} — ${p.queue.position} of ${p.queue.of}` : 'In progress'}
@@ -1252,6 +1254,7 @@ export default function FactoryPanel() {
               <div className="flex items-center gap-1 px-3 pt-3 border-b border-zinc-800 overflow-x-auto">
                 {([
                   ['preview', 'Preview', Eye],
+                  ['about', 'About', Info],
                   ['refine', `Refine${history.length ? ` (${history.length})` : ''}`, Wand2],
                   ['ship', 'Run & Ship', Rocket],
                   ['files', 'Files', FileCode2],
@@ -1270,6 +1273,10 @@ export default function FactoryPanel() {
               </div>
 
               <div className="min-h-[520px]">
+                {detailTab === 'about' && (
+                  <AppProfileCard projectId={job.id} refreshKey={`${job.status}|${job.finishedAt || ''}|${job.verification?.checkedAt || ''}|${history.length}`} />
+                )}
+
                 {detailTab === 'preview' && (
                   <div className="p-5">
                     <div className="flex items-center justify-between mb-4">
