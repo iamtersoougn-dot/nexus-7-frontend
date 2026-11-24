@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ClipboardList, Loader2, MessageSquareText, Plus, Trash2 } from 'lucide-react';
+import RequirementsChecklist from './RequirementsChecklist';
 import { approvePlan, revisePlan, type FactoryContract, type FactoryJob, type PlanEdits, type PlanProduct } from '../services/api';
 
 const ADD_ONS: Array<[string, string, string]> = [
@@ -327,6 +328,8 @@ export default function PlanReview({ job, onUpdate }: { job: FactoryJob; onUpdat
           </div>
         </fieldset>
       </div>
+
+      <RequirementsChecklist contract={contract} disabled={busy !== null} onInclude={(text) => setFeedback((f) => (f.trim() ? `${f.trim()}\n${text}` : text))} />
 
       <div className="border-t border-zinc-800/60 pt-4">
         <label className="block">

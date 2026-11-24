@@ -202,6 +202,17 @@ export interface FactoryContract {
   projectType?: 'app' | 'api' | 'agent-tool';
   auth?: { required: boolean; notes?: string };
   payments?: { enabled: boolean; provider?: 'paystack' | 'flutterwave'; products: PlanProduct[] };
+  /** Long briefs: the requirements checklist taken from the brief, and how the plan accounts for each item. */
+  requirements?: PlanRequirement[];
+  coverage?: Array<{ id: string; by: string[] }>;
+  deferred?: Array<{ id: string; reason: string }>;
+}
+
+export interface PlanRequirement {
+  id: string;
+  text: string;
+  priority: 'must' | 'should' | 'later';
+  area?: string;
 }
 
 export interface PlanProduct {
